@@ -2,7 +2,7 @@
 
 **Data reliability for small analytics teams.** DataHarbor gives one place to see pipeline runs, dataset lineage, freshness and failed quality checks, and shows which downstream datasets a broken upstream source affects.
 
-> **Status:** early development, following a 12-week roadmap (see below). The project uses only synthetic data and local services.
+> **Status:** early development, following a 6-week roadmap (see below). The project uses only synthetic data and local services.
 
 ## The problem
 
@@ -99,13 +99,14 @@ dataharbor/
 
 ## Roadmap
 
-| Weeks | Focus |
-|---|---|
-| 1–2 | Local data platform, fixtures, workspace permissions and dataset registry |
-| 3–5 | Ingestion contracts, landing zone, Airflow DAGs, run tracking and dbt models |
-| 6–8 | Freshness and quality engine, lineage graph, failure incident workflow |
-| 9–10 | Backfill preview and idempotent execution; AI run summaries with citations |
-| 11–12 | Scale, recovery and security testing; deployment and demo |
+| Week | Focus | Status |
+|---|---|---|
+| Week 1 | **Foundation** — Add Compose stack for PostgreSQL, MinIO, Airflow and Redis, add deterministic synthetic source data generator with tests | Planned |
+| Week 2 | **Registry & ingestion** — Bootstrap FastAPI service with health endpoint and migrations, add workspaces, members and role checks, add dataset registry endpoints, define ingestion contracts with schema validation, land source files in MinIO with checksums | Planned |
+| Week 3 | **Pipelines** — Add ingestion DAG with run tracking, expose pipeline run history API, add staging and mart models | Planned |
+| Week 4 | **Quality & lineage** — Add freshness rules, add data quality check engine and results, build lineage graph from dbt manifest, bootstrap React app with dataset list, add lineage and quality views | Planned |
+| Week 5 | **Incidents & backfills** — Open incidents from failed runs, add incident view with acknowledgment, add backfill preview, run idempotent backfills with tests | Planned |
+| Week 6 | **AI summaries & release** — Add run summary adapter with mock model and source citations, add scale, recovery and security tests, add lint, typecheck and test workflow, add setup guide, demo script and runbook | Planned |
 
 ## Getting started
 
