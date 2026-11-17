@@ -108,6 +108,12 @@ dataharbor/
 | Week 5 | **Incidents & backfills** — Open incidents from failed runs, add incident view with acknowledgment, add backfill preview, run idempotent backfills with tests | Planned |
 | Week 6 | **AI summaries & release** — Add run summary adapter with mock model and source citations, add scale, recovery and security tests, add lint, typecheck and test workflow, add setup guide, demo script and runbook | Planned |
 
+## Documentation
+
+- [Architecture decisions](docs/adr/)
+- [Week 1 acceptance cases](docs/acceptance/week-01-local-platform-and-fixtures.md)
+- [Progress notes](docs/progress/week-01.md)
+
 ## Getting started
 
 Setup instructions will be added once the first services are in place.
