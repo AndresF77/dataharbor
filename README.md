@@ -116,4 +116,6 @@ dataharbor/
 
 ## Getting started
 
-Setup instructions will be added once the first services are in place.
+The local services (PostgreSQL, MinIO, Redis, Airflow) run with Docker Compose; see
+[infra/compose/README.md](infra/compose/README.md). Application services will be
+added in the following weeks.
