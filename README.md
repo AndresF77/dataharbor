@@ -113,9 +113,18 @@ dataharbor/
 - [Architecture decisions](docs/adr/)
 - [Week 1 acceptance cases](docs/acceptance/week-01-local-platform-and-fixtures.md)
 - [Progress notes](docs/progress/week-01.md)
+- [Synthetic source data](packages/fixtures/README.md)
 
 ## Getting started
 
 The local services (PostgreSQL, MinIO, Redis, Airflow) run with Docker Compose; see
-[infra/compose/README.md](infra/compose/README.md). Application services will be
-added in the following weeks.
+[infra/compose/README.md](infra/compose/README.md). Sample source data comes from the
+fixture generator (Python 3.11+, no dependencies):
+
+```bash
+cd packages/fixtures
+python3 -m dataharbor_fixtures generate --out out/clean
+python3 -m unittest discover -s tests -t .
+```
+
+Application services will be added in the following weeks.

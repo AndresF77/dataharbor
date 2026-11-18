@@ -9,3 +9,11 @@
 | D05 | Unit and integration tests | Not started | |
 | D06 | Observability and security checks | Not started | |
 | D07 | Demo, regressions and next risks | Not started | |
+
+## Notes
+
+- Local services: Compose stack in [`infra/compose`](../../infra/compose/README.md)
+  (AC-01.1–5).
+- Synthetic source data: generator and checker in
+  [`packages/fixtures`](../../packages/fixtures/README.md); 17 tests cover AC-01.6–13,
+  including 25 seeds for validation, defect detection and defect isolation.

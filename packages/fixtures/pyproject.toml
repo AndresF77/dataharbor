@@ -1,0 +1,9 @@
+[project]
+name = "dataharbor-fixtures"
+version = "0.1.0"
+description = "Deterministic synthetic orders, payments and customers for DataHarbor development, tests and demos"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+dataharbor-fixtures = "dataharbor_fixtures.__main__:main"
