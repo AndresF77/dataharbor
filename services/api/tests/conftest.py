@@ -6,6 +6,9 @@ from fastapi.testclient import TestClient
 
 from dataharbor_api.config import Settings
 from dataharbor_api.main import create_app
+from dataharbor_api.migrations import upgrade
+from dataharbor_api.seed import seed_demo
+from tests.helpers import auth
 
 
 @pytest.fixture
@@ -19,3 +22,14 @@ def client(database_url: str) -> Iterator[TestClient]:
     app = create_app(Settings(database_url=database_url, environment="test"))
     with TestClient(app) as test_client:
         yield test_client
+
+
+@pytest.fixture
+def demo(client, database_url):
+    """Migrated database with the seeded demo workspace; returns tokens by role."""
+    upgrade(database_url)
+    with client.app.state.database.new_session() as session:
+        tokens = seed_demo(session)
+    by_role = dict(zip(("admin", "engineer", "viewer"), tokens.values(), strict=True))
+    workspace = client.get("/v1/workspaces", headers=auth(by_role["viewer"])).json()[0]
+    return {"tokens": by_role, "workspace_id": workspace["id"]}

@@ -6,32 +6,7 @@ from dataharbor_api.auth import hash_token
 from dataharbor_api.migrations import upgrade
 from dataharbor_api.models import ApiToken, User
 from dataharbor_api.seed import seed_demo
-
-
-@pytest.fixture
-def demo(client, database_url):
-    """Migrated database with the seeded demo workspace; returns tokens by role."""
-    upgrade(database_url)
-    with client.app.state.database.new_session() as session:
-        tokens = seed_demo(session)
-    by_role = dict(zip(("admin", "engineer", "viewer"), tokens.values(), strict=True))
-    workspace = client.get("/v1/workspaces", headers=auth(by_role["viewer"])).json()[0]
-    return {"tokens": by_role, "workspace_id": workspace["id"]}
-
-
-def auth(token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}"}
-
-
-def add_user(client, email: str) -> tuple[uuid.UUID, str]:
-    with client.app.state.database.new_session() as session:
-        user = User(email=email, display_name=email.split("@")[0])
-        session.add(user)
-        session.flush()
-        token = f"dh_test_{uuid.uuid4().hex}"
-        session.add(ApiToken(user_id=user.id, token_hash=hash_token(token), label="test"))
-        session.commit()
-        return user.id, token
+from tests.helpers import add_user, auth
 
 
 def test_missing_token_is_401_with_challenge(client, demo):

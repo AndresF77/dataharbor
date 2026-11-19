@@ -5,12 +5,12 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from dataharbor_api.auth import WorkspaceAccess, current_user, get_session, require_role
-from dataharbor_api.models import Role, User, Workspace, WorkspaceMember
+from dataharbor_api.models import Dataset, Role, User, Workspace, WorkspaceMember
 
 router = APIRouter(prefix="/v1/workspaces", tags=["workspaces"])
 
@@ -169,6 +169,12 @@ def remove_member(
         raise HTTPException(404, "Member not found")
     if member.role == Role.ADMIN.value and admin_count <= 1:
         raise HTTPException(409, "A workspace must keep at least one admin")
+    # A former member no longer owns anything in this workspace.
+    session.execute(
+        update(Dataset)
+        .where(Dataset.workspace_id == workspace_id, Dataset.owner_user_id == user_id)
+        .values(owner_user_id=None, version=Dataset.version + 1)
+    )
     session.delete(member)
     session.commit()
     return Response(status_code=204)

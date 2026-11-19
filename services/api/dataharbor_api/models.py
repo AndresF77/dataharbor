@@ -4,7 +4,16 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Uuid, func
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+    Uuid,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from dataharbor_api.db import Base
@@ -97,6 +106,53 @@ class WorkspaceMember(Base):
         Uuid, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True
     )
     role: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Layer(str, enum.Enum):
+    """Where a dataset sits in the warehouse: landed, cleaned or business-facing."""
+
+    RAW = "raw"
+    STAGING = "staging"
+    MART = "mart"
+
+
+LAYER_VALUES = ", ".join(f"'{layer.value}'" for layer in Layer)
+
+
+class Dataset(Base):
+    """A dataset registered in a workspace. `version` guards concurrent edits."""
+
+    __tablename__ = "datasets"
+    __table_args__ = (
+        CheckConstraint("length(name) BETWEEN 2 AND 63", name="name_length"),
+        CheckConstraint(f"layer IN ({LAYER_VALUES})", name="layer_valid"),
+        CheckConstraint("length(description) <= 2000", name="description_length"),
+        CheckConstraint(
+            "freshness_sla_minutes IS NULL OR freshness_sla_minutes BETWEEN 1 AND 525600",
+            name="freshness_sla_range",
+        ),
+        CheckConstraint("version >= 1", name="version_positive"),
+        UniqueConstraint("workspace_id", "name"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("workspaces.id", ondelete="CASCADE")
+    )
+    name: Mapped[str] = mapped_column(String(63))
+    layer: Mapped[str] = mapped_column(String(16))
+    description: Mapped[str] = mapped_column(String(2000), default="")
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    freshness_sla_minutes: Mapped[int | None] = mapped_column(Integer)
+    version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
