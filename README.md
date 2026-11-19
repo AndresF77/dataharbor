@@ -102,7 +102,7 @@ dataharbor/
 | Week | Focus | Status |
 |---|---|---|
 | Week 1 | **Foundation** — Add Compose stack for PostgreSQL, MinIO, Airflow and Redis, add deterministic synthetic source data generator with tests | ✅ Done |
-| Week 2 | **Registry & ingestion** — Bootstrap FastAPI service with health endpoint and migrations, add workspaces, members and role checks, add dataset registry endpoints, define ingestion contracts with schema validation, land source files in MinIO with checksums | Planned |
+| Week 2 | **Registry & ingestion** — Bootstrap FastAPI service with health endpoint and migrations, add workspaces, members and role checks, add dataset registry endpoints, define ingestion contracts with schema validation, land source files in MinIO with checksums | ✅ Done |
 | Week 3 | **Pipelines** — Add ingestion DAG with run tracking, expose pipeline run history API, add staging and mart models | Planned |
 | Week 4 | **Quality & lineage** — Add freshness rules, add data quality check engine and results, build lineage graph from dbt manifest, bootstrap React app with dataset list, add lineage and quality views | Planned |
 | Week 5 | **Incidents & backfills** — Open incidents from failed runs, add incident view with acknowledgment, add backfill preview, run idempotent backfills with tests | Planned |

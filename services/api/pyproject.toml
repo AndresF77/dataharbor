@@ -1,0 +1,26 @@
+[project]
+name = "dataharbor-api"
+version = "0.1.0"
+description = "DataHarbor domain API: workspaces, dataset registry, ingestion and run history"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn[standard]==0.34.0",
+    "sqlalchemy==2.0.36",
+    "alembic==1.14.0",
+    "psycopg[binary]==3.2.3",
+    "pydantic-settings==2.7.0",
+    "minio==7.2.12",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest==8.3.4",
+    "httpx==0.28.1",
+]
+
+[tool.setuptools.packages.find]
+include = ["dataharbor_api*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
