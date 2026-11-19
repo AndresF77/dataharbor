@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from dataharbor_api import __version__, datasets, health, workspaces
+from dataharbor_api import __version__, contracts, datasets, health, workspaces
 from dataharbor_api.config import Settings, get_settings
 from dataharbor_api.db import Database
 from dataharbor_api.errors import install_error_handlers
@@ -41,4 +41,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(workspaces.router)
     app.include_router(datasets.router)
+    app.include_router(contracts.router)
     return app

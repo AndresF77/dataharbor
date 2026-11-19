@@ -25,7 +25,17 @@ def test_upgrade_creates_workspaces(database_url):
         "api_tokens",
         "workspace_members",
         "datasets",
+        "ingestion_contracts",
     } <= tables(database_url)
+
+
+def test_downgrade_0004_keeps_datasets(database_url):
+    upgrade(database_url)
+    downgrade(database_url, "0003")
+
+    remaining = tables(database_url)
+    assert "datasets" in remaining
+    assert "ingestion_contracts" not in remaining
 
 
 def test_downgrade_0003_keeps_members(database_url):

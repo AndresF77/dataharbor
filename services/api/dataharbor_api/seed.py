@@ -4,7 +4,9 @@
 
 Idempotent: re-running keeps existing users and memberships, and only
 issues a new token for each demo user. Demo datasets mirror the
-synthetic sources in `packages/fixtures` and are only added if missing. Tokens are printed once and only
+synthetic sources in `packages/fixtures` and are only added if missing;
+the three raw datasets get a first ingestion contract describing the
+fixture files, unless they already have one. Tokens are printed once and only
 their hashes are stored. All identities use the reserved `example.test`
 domain; no real people or data.
 """
@@ -21,6 +23,7 @@ from dataharbor_api.db import Database
 from dataharbor_api.models import (
     ApiToken,
     Dataset,
+    IngestionContract,
     Layer,
     Role,
     User,
@@ -43,6 +46,46 @@ DEMO_DATASETS = [
     ("stg_payments", Layer.STAGING, "Typed payments with orphan rows flagged", 1500),
     ("daily_revenue", Layer.MART, "Paid revenue per day and currency", 1560),
 ]
+
+
+def _columns(*specs: str) -> list[dict]:
+    """`"name:type"` or `"name:type?"` (nullable) -> contract column dicts."""
+    columns = []
+    for spec in specs:
+        name, _, column_type = spec.partition(":")
+        nullable = column_type.endswith("?")
+        columns.append({"name": name, "type": column_type.rstrip("?"), "nullable": nullable})
+    return columns
+
+
+# First contract version for each raw dataset, matching packages/fixtures output.
+DEMO_CONTRACTS = {
+    "raw_customers": {
+        "format": "csv",
+        "columns": _columns(
+            "customer_id:string", "customer_name:string", "email:string",
+            "country:string", "segment:string", "signup_date:date",
+        ),
+        "primary_key": ["customer_id"],
+    },
+    "raw_orders": {
+        "format": "csv",
+        "columns": _columns(
+            "order_id:string", "customer_id:string", "merchant:string", "product:string",
+            "quantity:integer", "unit_price:decimal", "amount:decimal", "currency:string",
+            "status:string", "ordered_at:timestamp",
+        ),
+        "primary_key": ["order_id"],
+    },
+    "raw_payments": {
+        "format": "jsonl",
+        "columns": _columns(
+            "payment_id:string", "order_id:string", "method:string", "amount:decimal",
+            "currency:string", "status:string", "paid_at:timestamp",
+        ),
+        "primary_key": ["payment_id"],
+    },
+}
 
 
 def seed_demo(session: Session) -> dict[str, str]:
@@ -82,6 +125,21 @@ def seed_demo(session: Session) -> dict[str, str]:
                     owner_user_id=owner.id,
                     freshness_sla_minutes=sla,
                     version=1,
+                )
+            )
+    session.flush()
+
+    for name, contract in DEMO_CONTRACTS.items():
+        dataset = session.scalar(
+            select(Dataset).where(Dataset.workspace_id == workspace.id, Dataset.name == name)
+        )
+        has_contract = session.scalar(
+            select(IngestionContract.id).where(IngestionContract.dataset_id == dataset.id)
+        )
+        if dataset.layer == Layer.RAW.value and has_contract is None:
+            session.add(
+                IngestionContract(
+                    dataset_id=dataset.id, version=1, created_by_user_id=owner.id, **contract
                 )
             )
     session.commit()

@@ -99,7 +99,7 @@ def _check_owner(session: Session, workspace_id: uuid.UUID, owner_id: uuid.UUID 
         raise HTTPException(422, "The owner must be a member of this workspace")
 
 
-def _dataset(
+def load_dataset(
     session: Session, workspace_id: uuid.UUID, dataset_id: uuid.UUID, *, lock: bool = False
 ) -> Dataset:
     query = select(Dataset).where(Dataset.id == dataset_id, Dataset.workspace_id == workspace_id)
@@ -164,7 +164,7 @@ def get_dataset(
     access: WorkspaceAccess = Depends(require_role(Role.VIEWER)),
     session: Session = Depends(get_session),
 ) -> DatasetOut:
-    return _out(_dataset(session, access.workspace.id, dataset_id))
+    return _out(load_dataset(session, access.workspace.id, dataset_id))
 
 
 @router.patch("/{dataset_id}", response_model=DatasetOut)
@@ -175,7 +175,7 @@ def update_dataset(
     session: Session = Depends(get_session),
 ) -> DatasetOut:
     workspace_id = access.workspace.id
-    dataset = _dataset(session, workspace_id, dataset_id, lock=True)
+    dataset = load_dataset(session, workspace_id, dataset_id, lock=True)
     if body.version != dataset.version:
         raise HTTPException(
             409, f"Dataset was changed by someone else (current version {dataset.version})"

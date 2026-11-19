@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    JSON,
     String,
     UniqueConstraint,
     Uuid,
@@ -158,4 +159,30 @@ class Dataset(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class IngestionContract(Base):
+    """One published version of a raw dataset's source contract. Rows are never edited."""
+
+    __tablename__ = "ingestion_contracts"
+    __table_args__ = (
+        CheckConstraint("version >= 1", name="version_positive"),
+        CheckConstraint("format IN ('csv', 'jsonl')", name="format_valid"),
+        UniqueConstraint("dataset_id", "version"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    dataset_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("datasets.id", ondelete="CASCADE")
+    )
+    version: Mapped[int] = mapped_column(Integer)
+    format: Mapped[str] = mapped_column(String(8))
+    columns: Mapped[list] = mapped_column(JSON)
+    primary_key: Mapped[list] = mapped_column(JSON)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
     )
