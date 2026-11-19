@@ -23,6 +23,11 @@ export DATAHARBOR_DATABASE_URL=postgresql+psycopg://dataharbor:<POSTGRES_PASSWOR
 | `DATAHARBOR_DATABASE_URL` | local Compose PostgreSQL | SQLAlchemy URL of the metadata database |
 | `DATAHARBOR_ENVIRONMENT` | `local` | `local`, `test` or `ci` |
 | `DATAHARBOR_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
+| `DATAHARBOR_OBJECT_STORE` | `minio` | `minio`, or `memory` to keep landed files in the process (no MinIO needed; lost on restart) |
+| `DATAHARBOR_MINIO_ENDPOINT` | `http://127.0.0.1:9000` | MinIO / S3 API URL |
+| `DATAHARBOR_MINIO_ACCESS_KEY`, `DATAHARBOR_MINIO_SECRET_KEY` | local Compose MinIO | MinIO credentials (`MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`) |
+| `DATAHARBOR_LANDING_BUCKET` | `dataharbor-landing-local` | Bucket created by `minio-init` |
+| `DATAHARBOR_MAX_LANDING_BYTES` | `52428800` (50 MiB) | Largest file accepted by the landing endpoint |
 
 ## Endpoints
 
@@ -45,6 +50,9 @@ export DATAHARBOR_DATABASE_URL=postgresql+psycopg://dataharbor:<POSTGRES_PASSWOR
 | `GET …/contract/versions`, `GET …/contract/versions/{version}` | All contract versions, newest first, or one version (viewer+) |
 | `POST …/contract` | Publish the next contract version (engineer+, raw datasets only); needs `based_on_version` |
 | `POST …/contract/validate` | Check a sample file (raw request body, up to 5 MiB) against the latest or `?version=` contract (viewer+); nothing is stored |
+| `POST /v1/workspaces/{id}/datasets/{dataset_id}/files` | Land a source file (raw request body, `business_date`, `filename`; engineer+) in MinIO after it passes the latest contract |
+| `GET …/files`, `GET …/files/{file_id}` | Landed files, newest business date first, or one file (viewer+) |
+| `POST …/files/{file_id}/verify` | Re-read the stored object and compare its SHA-256 (engineer+) |
 
 ## Authentication and roles
 
@@ -134,6 +142,49 @@ violations are listed (`truncated` is then `true`; `violation_count` is
 the full total). Reports name columns and record numbers but never echo
 source values. Larger samples answer `413`.
 
+## Landing zone
+
+Engineers land a raw dataset's source file by sending it as the request body:
+
+```bash
+curl -X POST \
+  "http://127.0.0.1:8000/v1/workspaces/$WS/datasets/$DS/files?business_date=2026-03-01&filename=orders_2026-03-01.csv" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Content-SHA256: $(sha256sum orders_2026-03-01.csv | cut -d' ' -f1)" \
+  --data-binary @orders_2026-03-01.csv
+```
+
+The file is checked against the dataset's latest ingestion contract. A
+file that fails answers `422` with the same violation report as
+`…/contract/validate` in `error.details`, and nothing is stored. A passing
+file is written to the landing bucket under a content-addressed key
+
+```
+workspaces/<workspace id>/<dataset name>/business_date=<YYYY-MM-DD>/<sha256>.<csv|jsonl>
+```
+
+and recorded in `landed_files` (contract version, business date, original
+file name, SHA-256, size, record count, who landed it). The answer is `201`
+with `"duplicate": false`; sending the same bytes again answers `200` with
+the existing record and `"duplicate": true`, so retries never store a
+second copy.
+
+| Check | Answer |
+|---|---|
+| `X-Content-SHA256` (optional) differs from the body | `422`, nothing stored |
+| Dataset is not `raw`, or has no contract yet | `422` |
+| Empty body / larger than `DATAHARBOR_MAX_LANDING_BYTES` | `422` / `413` |
+| `filename` not `A-Z a-z 0-9 . _ -` (no paths) or bad `business_date` | `422` |
+| MinIO unreachable | `503`, nothing recorded; retry later |
+
+The SHA-256 is also sent to MinIO as `x-amz-checksum-sha256`, so the store
+rejects bytes that change in transit, and kept as object metadata.
+`GET …/files` lists landed files (newest business date first, optional
+`business_date` filter, `limit` 1–200), `GET …/files/{id}` shows one, and
+`POST …/files/{id}/verify` (engineer) re-reads the object and reports
+whether its SHA-256 still matches. Logs record ids, sizes and checksums,
+never file contents.
+
 ## Demo data
 
 Seed a demo workspace (`acme-analytics`) with one synthetic user per role,
@@ -172,7 +223,8 @@ Each migration's docstring states its rollback behaviour. `0001` creates
 three tables and keeps workspaces. `0003` adds `datasets`; rolling it back
 drops every registered dataset and keeps workspaces, users and members.
 `0004` adds `ingestion_contracts`; rolling it back drops every contract
-version and keeps datasets.
+version and keeps datasets. `0005` adds `landed_files`; rolling it back
+drops the file records only — objects stay in MinIO.
 
 ## Tests
 
@@ -188,7 +240,11 @@ the dataset registry (validation, workspace scoping, cursor pages,
 optimistic-version conflicts, owner checks), ingestion contracts
 (spec validation, versioning and `409` on stale publishes, every
 validation rule and type, the violation cap, sample size limits), the
+landing zone (stored bytes and keys, duplicate uploads, declared
+checksums, contract failures, roles, MinIO outages, verify, no file
+contents in logs; MinIO is replaced by an in-memory store), the
 seed command, and that the ORM models match the migrations. Two tests
 generate files with [`packages/fixtures`](../../packages/fixtures) and
 check that clean files pass the seeded contracts and that the duplicate
-order, null payment amount and renamed column defects are caught.
+order, null payment amount and renamed column defects are caught; a
+third lands every clean fixture file with its manifest SHA-256.

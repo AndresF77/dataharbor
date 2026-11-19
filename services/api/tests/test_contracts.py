@@ -1,11 +1,6 @@
-import sys
-from pathlib import Path
-
 import pytest
 
 from tests.helpers import add_user, auth
-
-REPO_ROOT = Path(__file__).resolve().parents[3]
 
 ORDERS_CONTRACT = {
     "format": "csv",
@@ -195,16 +190,6 @@ def test_validate_without_contract_is_404(client, demo):
         headers=auth(demo["tokens"]["viewer"]),
     )
     assert response.status_code == 404
-
-
-@pytest.fixture
-def fixtures_module():
-    path = str(REPO_ROOT / "packages" / "fixtures")
-    sys.path.insert(0, path)
-    try:
-        yield pytest.importorskip("dataharbor_fixtures.generator")
-    finally:
-        sys.path.remove(path)
 
 
 def validate_file(client, demo, dataset: str, data: bytes) -> dict:

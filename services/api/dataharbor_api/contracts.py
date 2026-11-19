@@ -93,7 +93,7 @@ def spec_of(contract: IngestionContract) -> ContractSpec:
     )
 
 
-def _contract(
+def find_contract(
     session: Session, dataset: Dataset, version: int | None = None
 ) -> IngestionContract:
     query = select(IngestionContract).where(IngestionContract.dataset_id == dataset.id)
@@ -108,29 +108,33 @@ def _contract(
     return contract
 
 
-async def read_sample(request: Request) -> bytes:
-    """The raw request body, refused above MAX_SAMPLE_BYTES without reading it all."""
+async def read_body(request: Request, limit: int, noun: str) -> bytes:
+    """The raw request body, refused above `limit` bytes without reading it all."""
     declared = request.headers.get("content-length", "")
-    if declared.isdigit() and int(declared) > MAX_SAMPLE_BYTES:
-        raise HTTPException(413, f"Sample files are limited to {MAX_SAMPLE_BYTES} bytes")
+    if declared.isdigit() and int(declared) > limit:
+        raise HTTPException(413, f"{noun.capitalize()}s are limited to {limit} bytes")
     body = bytearray()
     async for chunk in request.stream():
         body.extend(chunk)
-        if len(body) > MAX_SAMPLE_BYTES:
-            raise HTTPException(413, f"Sample files are limited to {MAX_SAMPLE_BYTES} bytes")
+        if len(body) > limit:
+            raise HTTPException(413, f"{noun.capitalize()}s are limited to {limit} bytes")
     if not body:
-        raise HTTPException(422, "The sample file is empty")
+        raise HTTPException(422, f"The {noun} is empty")
     return bytes(body)
 
 
+async def read_sample(request: Request) -> bytes:
+    return await read_body(request, MAX_SAMPLE_BYTES, "sample file")
+
+
 @router.get("", response_model=ContractOut)
-def get_latest_contract(
+def get_find_contract(
     dataset_id: uuid.UUID,
     access: WorkspaceAccess = Depends(require_role(Role.VIEWER)),
     session: Session = Depends(get_session),
 ) -> ContractOut:
     dataset = load_dataset(session, access.workspace.id, dataset_id)
-    return _out(_contract(session, dataset))
+    return _out(find_contract(session, dataset))
 
 
 @router.get("/versions", response_model=ContractVersions)
@@ -157,7 +161,7 @@ def get_contract_version(
     session: Session = Depends(get_session),
 ) -> ContractOut:
     dataset = load_dataset(session, access.workspace.id, dataset_id)
-    return _out(_contract(session, dataset, version))
+    return _out(find_contract(session, dataset, version))
 
 
 @router.post("", response_model=ContractOut, status_code=201)
@@ -209,7 +213,7 @@ def validate_sample(
 ) -> ValidationOut:
     """Check a sample file (raw request body) against a contract version. Nothing is stored."""
     dataset = load_dataset(session, access.workspace.id, dataset_id)
-    contract = _contract(session, dataset, version)
+    contract = find_contract(session, dataset, version)
     report = validate_content(spec_of(contract), sample)
     return ValidationOut(
         valid=report.valid,

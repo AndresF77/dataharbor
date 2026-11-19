@@ -15,6 +15,16 @@ class Settings(BaseSettings):
     )
     environment: str = Field(default="local", pattern=r"^(local|test|ci)$")
     log_level: str = Field(default="INFO", pattern=r"^(DEBUG|INFO|WARNING|ERROR)$")
+    object_store: str = Field(
+        default="minio",
+        pattern=r"^(minio|memory)$",
+        description="`minio` for the Compose MinIO; `memory` keeps landed files in the process",
+    )
+    minio_endpoint: str = Field(default="http://127.0.0.1:9000")
+    minio_access_key: str = Field(default="dataharbor")
+    minio_secret_key: str = Field(default="change-me-minio", repr=False)
+    landing_bucket: str = Field(default="dataharbor-landing-local", min_length=3, max_length=63)
+    max_landing_bytes: int = Field(default=50 * 1024 * 1024, ge=1024, le=512 * 1024 * 1024)
 
 
 @lru_cache

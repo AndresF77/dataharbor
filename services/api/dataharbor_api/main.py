@@ -9,14 +9,28 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from dataharbor_api import __version__, contracts, datasets, health, workspaces
+from dataharbor_api import __version__, contracts, datasets, health, landing, workspaces
 from dataharbor_api.config import Settings, get_settings
 from dataharbor_api.db import Database
 from dataharbor_api.errors import install_error_handlers
 from dataharbor_api.request_id import RequestIdMiddleware
+from dataharbor_api.storage import MemoryObjectStore, ObjectStore, S3ObjectStore
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def make_object_store(settings: Settings) -> ObjectStore:
+    if settings.object_store == "memory":
+        return MemoryObjectStore(settings.landing_bucket)
+    return S3ObjectStore(
+        settings.minio_endpoint,
+        settings.minio_access_key,
+        settings.minio_secret_key,
+        settings.landing_bucket,
+    )
+
+
+def create_app(
+    settings: Settings | None = None, object_store: ObjectStore | None = None
+) -> FastAPI:
     settings = settings or get_settings()
     logging.basicConfig(level=settings.log_level)
 
@@ -35,6 +49,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.state.database = Database(settings.database_url)
+    app.state.object_store = object_store or make_object_store(settings)
 
     app.add_middleware(RequestIdMiddleware)
     install_error_handlers(app)
@@ -42,4 +57,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(workspaces.router)
     app.include_router(datasets.router)
     app.include_router(contracts.router)
+    app.include_router(landing.router)
     return app

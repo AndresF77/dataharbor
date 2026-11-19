@@ -1,3 +1,4 @@
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -10,6 +11,8 @@ from dataharbor_api.migrations import upgrade
 from dataharbor_api.seed import seed_demo
 from tests.helpers import auth
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
 
 @pytest.fixture
 def database_url(tmp_path: Path) -> str:
@@ -19,7 +22,9 @@ def database_url(tmp_path: Path) -> str:
 
 @pytest.fixture
 def client(database_url: str) -> Iterator[TestClient]:
-    app = create_app(Settings(database_url=database_url, environment="test"))
+    app = create_app(
+        Settings(database_url=database_url, environment="test", object_store="memory")
+    )
     with TestClient(app) as test_client:
         yield test_client
 
@@ -33,3 +38,14 @@ def demo(client, database_url):
     by_role = dict(zip(("admin", "engineer", "viewer"), tokens.values(), strict=True))
     workspace = client.get("/v1/workspaces", headers=auth(by_role["viewer"])).json()[0]
     return {"tokens": by_role, "workspace_id": workspace["id"]}
+
+
+@pytest.fixture
+def fixtures_module():
+    """`packages/fixtures` generator, imported from the repository checkout."""
+    path = str(REPO_ROOT / "packages" / "fixtures")
+    sys.path.insert(0, path)
+    try:
+        yield pytest.importorskip("dataharbor_fixtures.generator")
+    finally:
+        sys.path.remove(path)

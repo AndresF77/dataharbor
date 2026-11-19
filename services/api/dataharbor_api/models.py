@@ -2,10 +2,12 @@
 
 import enum
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Integer,
@@ -184,5 +186,43 @@ class IngestionContract(Base):
         Uuid, ForeignKey("users.id", ondelete="SET NULL")
     )
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class LandedFile(Base):
+    """A source file stored in the landing bucket after passing its contract.
+
+    The object key is derived from the SHA-256, and `(dataset_id, sha256)`
+    is unique, so re-sending identical bytes never lands a second copy.
+    Rows are never edited.
+    """
+
+    __tablename__ = "landed_files"
+    __table_args__ = (
+        CheckConstraint("length(sha256) = 64", name="sha256_length"),
+        CheckConstraint("size_bytes > 0", name="size_positive"),
+        CheckConstraint("record_count >= 0", name="record_count_nonnegative"),
+        CheckConstraint("contract_version >= 1", name="contract_version_positive"),
+        CheckConstraint("length(original_filename) BETWEEN 1 AND 255", name="filename_length"),
+        UniqueConstraint("dataset_id", "sha256"),
+        UniqueConstraint("object_key"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    dataset_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("datasets.id", ondelete="CASCADE")
+    )
+    contract_version: Mapped[int] = mapped_column(Integer)
+    business_date: Mapped[date] = mapped_column(Date)
+    original_filename: Mapped[str] = mapped_column(String(255))
+    object_key: Mapped[str] = mapped_column(String(512))
+    sha256: Mapped[str] = mapped_column(String(64))
+    size_bytes: Mapped[int] = mapped_column(BigInteger)
+    record_count: Mapped[int] = mapped_column(Integer)
+    landed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL")
+    )
+    landed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
