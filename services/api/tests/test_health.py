@@ -22,7 +22,7 @@ def test_readiness_reports_pending_migrations(client):
     assert body["status"] == "not_ready"
     assert body["checks"] == {"database": "ok", "migrations": "pending"}
     assert body["schema_revision"] is None
-    assert body["expected_revision"] == "0001"
+    assert body["expected_revision"] == "0002"
 
 
 def test_readiness_is_ready_after_migrating(client, database_url):
@@ -32,7 +32,7 @@ def test_readiness_is_ready_after_migrating(client, database_url):
 
     assert response.status_code == 200
     assert response.json()["checks"] == {"database": "ok", "migrations": "ok"}
-    assert response.json()["schema_revision"] == "0001"
+    assert response.json()["schema_revision"] == "0002"
 
 
 def test_readiness_reports_an_unreachable_database(tmp_path):

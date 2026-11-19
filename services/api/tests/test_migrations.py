@@ -18,16 +18,31 @@ def tables(database_url: str) -> set[str]:
 def test_upgrade_creates_workspaces(database_url):
     upgrade(database_url)
 
-    assert {"alembic_version", "workspaces"} <= tables(database_url)
+    assert {
+        "alembic_version",
+        "workspaces",
+        "users",
+        "api_tokens",
+        "workspace_members",
+    } <= tables(database_url)
+
+
+def test_downgrade_0002_keeps_workspaces(database_url):
+    upgrade(database_url)
+    downgrade(database_url, "0001")
+
+    remaining = tables(database_url)
+    assert "workspaces" in remaining
+    assert not {"users", "api_tokens", "workspace_members"} & remaining
 
 
 def test_downgrade_to_base_and_upgrade_again(database_url):
     upgrade(database_url)
     downgrade(database_url, "base")
-    assert "workspaces" not in tables(database_url)
+    assert tables(database_url) <= {"alembic_version"}
 
     upgrade(database_url)
-    assert "workspaces" in tables(database_url)
+    assert {"workspaces", "workspace_members"} <= tables(database_url)
 
 
 def insert_workspace(connection, slug: str, name: str) -> None:
@@ -75,3 +90,42 @@ def test_model_metadata_matches_migrations(database_url):
         engine.dispose()
 
     assert diff == []
+
+
+def test_member_role_must_be_known(database_url):
+    upgrade(database_url)
+    engine = create_engine(database_url)
+    workspace_id, user_id = uuid.uuid4().hex, uuid.uuid4().hex
+    try:
+        with engine.begin() as connection:
+            insert_workspace(connection, "acme-analytics", "Acme Analytics")
+            connection.execute(
+                text("UPDATE workspaces SET id = :id"), {"id": workspace_id}
+            )
+            connection.execute(
+                text("INSERT INTO users (id, email, display_name) VALUES (:id, :e, :n)"),
+                {"id": user_id, "e": "erin@example.test", "n": "Erin"},
+            )
+        with pytest.raises(IntegrityError), engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO workspace_members (workspace_id, user_id, role) "
+                    "VALUES (:w, :u, 'owner')"
+                ),
+                {"w": workspace_id, "u": user_id},
+            )
+    finally:
+        engine.dispose()
+
+
+def test_user_email_must_be_lowercase(database_url):
+    upgrade(database_url)
+    engine = create_engine(database_url)
+    try:
+        with pytest.raises(IntegrityError), engine.begin() as connection:
+            connection.execute(
+                text("INSERT INTO users (id, email, display_name) VALUES (:id, :e, :n)"),
+                {"id": uuid.uuid4().hex, "e": "Erin@Example.test", "n": "Erin"},
+            )
+    finally:
+        engine.dispose()

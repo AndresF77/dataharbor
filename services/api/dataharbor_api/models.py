@@ -1,9 +1,10 @@
 """ORM models. Every tenant-owned table references `workspaces.id`."""
 
+import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, String, Uuid, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from dataharbor_api.db import Base
@@ -19,6 +20,83 @@ class Workspace(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     slug: Mapped[str] = mapped_column(String(40), unique=True)
     name: Mapped[str] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Role(str, enum.Enum):
+    """Workspace roles, lowest to highest. Each role includes the ones below it."""
+
+    VIEWER = "viewer"
+    ENGINEER = "engineer"
+    ADMIN = "admin"
+
+    @property
+    def rank(self) -> int:
+        return list(Role).index(self)
+
+    def includes(self, other: "Role") -> bool:
+        return self.rank >= other.rank
+
+
+ROLE_VALUES = ", ".join(f"'{role.value}'" for role in Role)
+
+
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint("length(email) BETWEEN 3 AND 254", name="email_length"),
+        CheckConstraint("email = lower(email)", name="email_lowercase"),
+        CheckConstraint("length(display_name) BETWEEN 1 AND 120", name="display_name_length"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    email: Mapped[str] = mapped_column(String(254), unique=True)
+    display_name: Mapped[str] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ApiToken(Base):
+    """Bearer tokens. Only the SHA-256 of the token is stored."""
+
+    __tablename__ = "api_tokens"
+    __table_args__ = (
+        CheckConstraint("length(token_hash) = 64", name="token_hash_length"),
+        CheckConstraint("length(label) BETWEEN 1 AND 80", name="label_length"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    label: Mapped[str] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class WorkspaceMember(Base):
+    __tablename__ = "workspace_members"
+    __table_args__ = (CheckConstraint(f"role IN ({ROLE_VALUES})", name="role_valid"),)
+
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+    role: Mapped[str] = mapped_column(String(16))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

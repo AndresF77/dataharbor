@@ -31,8 +31,11 @@ class Database:
         self.engine = make_engine(database_url)
         self._sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
 
+    def new_session(self) -> Session:
+        return self._sessions()
+
     def session(self) -> Iterator[Session]:
-        with self._sessions() as session:
+        with self.new_session() as session:
             yield session
 
     def dispose(self) -> None:
