@@ -1,0 +1,21 @@
+[project]
+name = "dataharbor-worker"
+version = "0.1.0"
+description = "DataHarbor Airflow DAGs and the task logic behind them"
+requires-python = ">=3.11"
+# Runtime uses the standard library only, so the package runs unchanged inside
+# the stock apache/airflow image (mounted on PYTHONPATH by infra/compose).
+dependencies = []
+
+[project.optional-dependencies]
+test = [
+    "pytest==8.3.4",
+    "httpx==0.28.1",
+    # The tests drive the real API in-process: pip install -e ../api
+]
+
+[tool.setuptools.packages.find]
+include = ["dataharbor_worker*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

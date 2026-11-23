@@ -112,7 +112,7 @@ dataharbor/
 
 - [Architecture decisions](docs/adr/)
 - [Week 1 acceptance cases](docs/acceptance/week-01-local-platform-and-fixtures.md)
-- [Progress notes](docs/progress/week-01.md)
+- [Progress notes](docs/progress/)
 - [Synthetic source data](packages/fixtures/README.md)
 
 ## Getting started

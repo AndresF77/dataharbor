@@ -27,7 +27,19 @@ def test_upgrade_creates_workspaces(database_url):
         "datasets",
         "ingestion_contracts",
         "landed_files",
+        "pipelines",
+        "pipeline_runs",
+        "pipeline_run_tasks",
     } <= tables(database_url)
+
+
+def test_downgrade_0006_keeps_landed_files(database_url):
+    upgrade(database_url)
+    downgrade(database_url, "0005")
+
+    remaining = tables(database_url)
+    assert "landed_files" in remaining
+    assert not {"pipelines", "pipeline_runs", "pipeline_run_tasks"} & remaining
 
 
 def test_downgrade_0005_keeps_contracts(database_url):

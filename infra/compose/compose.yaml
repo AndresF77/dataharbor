@@ -16,8 +16,19 @@ x-airflow: &airflow
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
     AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "false"
     AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session
+    # DAG task logic (services/worker/dataharbor_worker, standard library only)
+    PYTHONPATH: /opt/airflow/worker
+    # The API runs on the host (uvicorn); DAG tasks call it with an engineer token
+    DATAHARBOR_API_URL: ${DATAHARBOR_WORKER_API_URL:-http://host.docker.internal:8000}
+    DATAHARBOR_API_TOKEN: ${DATAHARBOR_WORKER_TOKEN:-}
+    DATAHARBOR_WORKSPACE_ID: ${DATAHARBOR_WORKER_WORKSPACE_ID:-}
+    DATAHARBOR_SOURCE_DIR: /opt/airflow/sources
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
   volumes:
     - ../../services/worker/dags:/opt/airflow/dags
+    - ../../services/worker/dataharbor_worker:/opt/airflow/worker/dataharbor_worker:ro
+    - ${DATAHARBOR_SOURCE_DIR_HOST:-../../packages/fixtures/out/clean}:/opt/airflow/sources:ro
     - airflow-logs:/opt/airflow/logs
   depends_on: &airflow-depends
     postgres:

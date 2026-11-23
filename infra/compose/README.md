@@ -30,4 +30,8 @@ The PostgreSQL init script (`postgres/init/01-databases.sh`) only runs when the
 data volume is empty, so a password change in `.env` after the first start needs
 a volume reset or a manual `ALTER ROLE`.
 
-DAGs are mounted from `services/worker/dags/`.
+DAGs are mounted from `services/worker/dags/` and their task logic from
+`services/worker/dataharbor_worker` (on `PYTHONPATH`). The ingestion DAG reads
+source files from `DATAHARBOR_SOURCE_DIR_HOST` (default
+`packages/fixtures/out/clean`, mounted read-only) and reports runs to the API
+on the host; see [`services/worker`](../../services/worker/README.md).

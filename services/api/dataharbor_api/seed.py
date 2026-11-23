@@ -6,7 +6,8 @@ Idempotent: re-running keeps existing users and memberships, and only
 issues a new token for each demo user. Demo datasets mirror the
 synthetic sources in `packages/fixtures` and are only added if missing;
 the three raw datasets get a first ingestion contract describing the
-fixture files, unless they already have one. Tokens are printed once and only
+fixture files, unless they already have one, and the raw-source ingestion
+pipeline (`services/worker/dags/ingest_raw_sources.py`) is registered. Tokens are printed once and only
 their hashes are stored. All identities use the reserved `example.test`
 domain; no real people or data.
 """
@@ -25,6 +26,8 @@ from dataharbor_api.models import (
     Dataset,
     IngestionContract,
     Layer,
+    Pipeline,
+    PipelineKind,
     Role,
     User,
     Workspace,
@@ -87,6 +90,17 @@ DEMO_CONTRACTS = {
     },
 }
 
+# Matches DAG_ID and the schedule in services/worker/dags/ingest_raw_sources.py.
+DEMO_PIPELINES = [
+    (
+        "ingest_raw_sources",
+        PipelineKind.INGESTION,
+        "dataharbor_ingest_raw_sources",
+        "0 3 * * *",
+        "Lands the daily customers, orders and payments files once they are due (03:00 UTC)",
+    ),
+]
+
 
 def seed_demo(session: Session) -> dict[str, str]:
     """Create the demo workspace and users; return {email: new bearer token}."""
@@ -140,6 +154,22 @@ def seed_demo(session: Session) -> dict[str, str]:
             session.add(
                 IngestionContract(
                     dataset_id=dataset.id, version=1, created_by_user_id=owner.id, **contract
+                )
+            )
+
+    for name, kind, dag_id, schedule, description in DEMO_PIPELINES:
+        exists = session.scalar(
+            select(Pipeline.id).where(Pipeline.workspace_id == workspace.id, Pipeline.name == name)
+        )
+        if exists is None:
+            session.add(
+                Pipeline(
+                    workspace_id=workspace.id,
+                    name=name,
+                    kind=kind.value,
+                    dag_id=dag_id,
+                    schedule=schedule,
+                    description=description,
                 )
             )
     session.commit()
