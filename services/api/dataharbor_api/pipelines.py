@@ -12,17 +12,21 @@ with an engineer token:
    A run with a failed task cannot succeed, and a finished run is never
    changed again.
 
-Viewers can read pipelines and runs. Task messages and error summaries come
+Viewers can read pipelines and runs. `GET …/{pipeline_id}/runs` is the run
+history: newest business date first, filterable by status, trigger and a
+business-date window, with task counts per run and keyset pagination. Task messages and error summaries come
 from the orchestrator, are bounded to 500 characters and are stored as text.
 """
 
+import base64
+import binascii
 import logging
 import uuid
 from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -113,6 +117,67 @@ class RunOut(BaseModel):
     started_at: datetime
     finished_at: datetime | None
     tasks: list[TaskOut]
+
+
+class TaskCounts(BaseModel):
+    succeeded: int = 0
+    failed: int = 0
+    skipped: int = 0
+
+
+class RunSummary(BaseModel):
+    id: uuid.UUID
+    external_run_id: str
+    trigger: RunTrigger
+    business_date: date
+    status: RunStatus
+    error_summary: str | None
+    started_at: datetime
+    finished_at: datetime | None
+    duration_seconds: float | None = Field(description="Null while the run is still running")
+    task_counts: TaskCounts
+
+
+class RunPage(BaseModel):
+    items: list[RunSummary]
+    next_cursor: str | None
+
+
+def encode_run_cursor(run: PipelineRun) -> str:
+    raw = f"{run.business_date.isoformat()}|{run.id}"
+    return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
+
+def decode_run_cursor(cursor: str) -> tuple[date, uuid.UUID]:
+    try:
+        raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode()
+        day, run_id = raw.split("|")
+        return date.fromisoformat(day), uuid.UUID(run_id)
+    except (binascii.Error, UnicodeDecodeError, ValueError):
+        raise HTTPException(422, "Invalid cursor") from None
+
+
+def _duration(run: PipelineRun) -> float | None:
+    if run.finished_at is None:
+        return None
+    started, finished = run.started_at, run.finished_at
+    if (started.tzinfo is None) != (finished.tzinfo is None):
+        started, finished = started.replace(tzinfo=None), finished.replace(tzinfo=None)
+    return max((finished - started).total_seconds(), 0.0)
+
+
+def _task_counts(session: Session, run_ids: list[uuid.UUID]) -> dict[uuid.UUID, TaskCounts]:
+    counts = {run_id: TaskCounts() for run_id in run_ids}
+    if not run_ids:
+        return counts
+    rows = session.execute(
+        select(PipelineRunTask.run_id, PipelineRunTask.status, func.count())
+        .where(PipelineRunTask.run_id.in_(run_ids))
+        .group_by(PipelineRunTask.run_id, PipelineRunTask.status)
+    ).all()
+    for run_id, status, count in rows:
+        setattr(counts[run_id], TaskStatus(status).value, count)
+    return counts
 
 
 def _pipeline_out(row: Pipeline) -> PipelineOut:
@@ -263,6 +328,68 @@ def start_run(
         pipeline.id, run.id, run.business_date, run.trigger,
     )
     return _run_out(session, run)
+
+
+@router.get("/{pipeline_id}/runs", response_model=RunPage)
+def list_runs(
+    pipeline_id: uuid.UUID,
+    status: RunStatus | None = None,
+    trigger: RunTrigger | None = None,
+    business_date_from: date | None = Query(default=None, description="Inclusive"),
+    business_date_to: date | None = Query(default=None, description="Inclusive"),
+    limit: int = Query(default=50, ge=1, le=200),
+    cursor: str | None = Query(default=None, max_length=128),
+    access: WorkspaceAccess = Depends(require_role(Role.VIEWER)),
+    session: Session = Depends(get_session),
+) -> RunPage:
+    """Run history, newest business date first; pass `next_cursor` back for more.
+
+    Runs of the same business date (retries, backfills) come in a stable
+    order, so pages never skip or repeat a run.
+    """
+    if business_date_from and business_date_to and business_date_from > business_date_to:
+        raise HTTPException(422, "business_date_from is after business_date_to")
+    pipeline = load_pipeline(session, access.workspace.id, pipeline_id)
+
+    query = select(PipelineRun).where(PipelineRun.pipeline_id == pipeline.id)
+    if status is not None:
+        query = query.where(PipelineRun.status == status.value)
+    if trigger is not None:
+        query = query.where(PipelineRun.trigger == trigger.value)
+    if business_date_from is not None:
+        query = query.where(PipelineRun.business_date >= business_date_from)
+    if business_date_to is not None:
+        query = query.where(PipelineRun.business_date <= business_date_to)
+    if cursor is not None:
+        after_date, after_id = decode_run_cursor(cursor)
+        query = query.where(
+            or_(
+                PipelineRun.business_date < after_date,
+                and_(PipelineRun.business_date == after_date, PipelineRun.id < after_id),
+            )
+        )
+    rows = session.scalars(
+        query.order_by(PipelineRun.business_date.desc(), PipelineRun.id.desc()).limit(limit + 1)
+    ).all()
+    runs = rows[:limit]
+    counts = _task_counts(session, [r.id for r in runs])
+    items = [
+        RunSummary(
+            id=r.id,
+            external_run_id=r.external_run_id,
+            trigger=RunTrigger(r.trigger),
+            business_date=r.business_date,
+            status=RunStatus(r.status),
+            error_summary=r.error_summary,
+            started_at=r.started_at,
+            finished_at=r.finished_at,
+            duration_seconds=_duration(r),
+            task_counts=counts[r.id],
+        )
+        for r in runs
+    ]
+    next_cursor = encode_run_cursor(runs[-1]) if len(rows) > limit else None
+    return RunPage(items=items, next_cursor=next_cursor)
 
 
 @router.get("/{pipeline_id}/runs/{run_id}", response_model=RunOut)

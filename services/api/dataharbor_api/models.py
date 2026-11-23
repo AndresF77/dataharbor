@@ -10,6 +10,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     String,
@@ -306,6 +307,7 @@ class PipelineRun(Base):
             "error_summary IS NULL OR length(error_summary) <= 500", name="error_summary_length"
         ),
         UniqueConstraint("pipeline_id", "external_run_id"),
+        Index("ix_pipeline_runs_history", "pipeline_id", "business_date", "id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)

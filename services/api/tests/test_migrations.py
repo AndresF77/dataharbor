@@ -42,6 +42,22 @@ def test_downgrade_0006_keeps_landed_files(database_url):
     assert not {"pipelines", "pipeline_runs", "pipeline_run_tasks"} & remaining
 
 
+def test_downgrade_0007_drops_history_index_only(database_url):
+    upgrade(database_url)
+
+    def indexes() -> set[str]:
+        engine = create_engine(database_url)
+        try:
+            return {i["name"] for i in inspect(engine).get_indexes("pipeline_runs")}
+        finally:
+            engine.dispose()
+
+    assert "ix_pipeline_runs_history" in indexes()
+    downgrade(database_url, "0006")
+    assert "ix_pipeline_runs_history" not in indexes()
+    assert "pipeline_runs" in tables(database_url)
+
+
 def test_downgrade_0005_keeps_contracts(database_url):
     upgrade(database_url)
     downgrade(database_url, "0004")

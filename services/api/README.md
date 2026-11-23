@@ -209,6 +209,27 @@ status is terminal, statuses and triggers are checked, and `(run, task_id)`
 is unique. Messages come from the orchestrator and are stored as plain
 text; logs record ids and statuses only.
 
+### Run history
+
+`GET /v1/workspaces/{id}/pipelines/{id}/runs` (any member) lists a
+pipeline's runs, newest business date first. Each item is a summary: status,
+trigger, business date, start/finish time, `duration_seconds` (null while
+running), `error_summary` and `task_counts` (`succeeded` / `failed` /
+`skipped`); `GET …/runs/{run_id}` returns the full run with every task.
+
+| Query parameter | Meaning |
+|---|---|
+| `status` | `running`, `succeeded` or `failed` |
+| `trigger` | `scheduled`, `manual` or `backfill` |
+| `business_date_from`, `business_date_to` | Inclusive window; `from` after `to` is `422` |
+| `limit` | 1–200, default 50 |
+| `cursor` | `next_cursor` from the previous page; filters must stay the same |
+
+Runs of the same business date (a retry, a manual re-run) come in a stable
+order, so paging never skips or repeats a run. The index
+`ix_pipeline_runs_history` (`pipeline_id, business_date, id`) backs this
+order.
+
 ## Demo data
 
 Seed a demo workspace (`acme-analytics`) with one synthetic user per role,
@@ -249,7 +270,10 @@ three tables and keeps workspaces. `0003` adds `datasets`; rolling it back
 drops every registered dataset and keeps workspaces, users and members.
 `0004` adds `ingestion_contracts`; rolling it back drops every contract
 version and keeps datasets. `0005` adds `landed_files`; rolling it back
-drops the file records only — objects stay in MinIO.
+drops the file records only — objects stay in MinIO. `0006` adds
+`pipelines`, `pipeline_runs` and `pipeline_run_tasks`; rolling it back drops
+the run history. `0007` adds the run-history index; rolling it back drops
+the index only.
 
 ## Tests
 

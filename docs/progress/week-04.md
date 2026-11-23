@@ -4,9 +4,9 @@
 |---|---|---|---|
 | D22 | Acceptance cases and ADR | Done | [ADR 0002](../adr/0002-airflow-run-tracking.md); acceptance cases below |
 | D23 | Core data schema and migration | Done | Alembic `0006`: `pipelines`, `pipeline_runs` (unique Airflow run id per pipeline, `finished_at` set exactly when terminal), `pipeline_run_tasks` (one outcome per task); rollback drops the run history only |
-| D24 | API endpoint and validation | In progress | [Run tracking endpoints](../../services/api/README.md#pipeline-runs): start / task outcome / finish / run detail. Run history listing is next |
+| D24 | API endpoint and validation | Done | [Run tracking endpoints](../../services/api/README.md#pipeline-runs): start / task outcome / finish / run detail; [run history](../../services/api/README.md#run-history) with status, trigger and business-date filters, task counts and keyset pages (Alembic `0007` index) |
 | D25 | UI workflow with error states | Not started | |
-| D26 | Unit and integration tests | In progress | API: 21 run-tracking tests. Worker: ingestion against the real API in-process, with clean and defect fixture sets |
+| D26 | Unit and integration tests | In progress | API: 21 run-tracking + 25 run-history tests (ordering, filters, paging without gaps or repeats, cursor/limit validation, access). Worker: ingestion against the real API in-process, with clean and defect fixture sets |
 | D27 | Observability and security checks | In progress | Task messages bounded and built from counts, rule names and checksums; logs carry ids and statuses only (tested); manifest paths cannot leave the source directory |
 | D28 | Demo, regressions and next risks | Not started | |
 
@@ -22,6 +22,8 @@
 | AC-04.6 | A task never reported (crashed before recording) | `close_run` runs | the run fails and names the task |
 | AC-04.7 | A finished run | anyone reports a task or a different finish | `409`; history unchanged |
 | AC-04.8 | A viewer token | it tries to start a run | `403` |
+| AC-04.9 | Runs over several dates, one date retried | a viewer pages through the history 2 at a time | newest date first, both attempts of the retried date listed once each, every run seen exactly once |
+| AC-04.10 | A failed run and a running run | the history is read | the failed run shows its task counts and duration; the running one has no `finished_at` or duration |
 
 ## Notes
 
