@@ -81,8 +81,7 @@ flowchart LR
 dataharbor/
 ├── apps/web/              # React frontend
 ├── services/api/          # FastAPI service
-├── services/worker/       # background jobs
-├── pipelines/             # Airflow DAGs and dbt project
+├── services/worker/       # Airflow DAGs, task logic and dbt project
 ├── packages/fixtures/     # synthetic source data
 ├── infra/compose/         # local services
 ├── tests/                 # integration and end-to-end tests
@@ -103,7 +102,7 @@ dataharbor/
 |---|---|---|
 | Week 1 | **Foundation** — Add Compose stack for PostgreSQL, MinIO, Airflow and Redis, add deterministic synthetic source data generator with tests | ✅ Done |
 | Week 2 | **Registry & ingestion** — Bootstrap FastAPI service with health endpoint and migrations, add workspaces, members and role checks, add dataset registry endpoints, define ingestion contracts with schema validation, land source files in MinIO with checksums | ✅ Done |
-| Week 3 | **Pipelines** — Add ingestion DAG with run tracking, expose pipeline run history API, add staging and mart models | Planned |
+| Week 3 | **Pipelines** — Add ingestion DAG with run tracking, expose pipeline run history API, add staging and mart models | ✅ Done |
 | Week 4 | **Quality & lineage** — Add freshness rules, add data quality check engine and results, build lineage graph from dbt manifest, bootstrap React app with dataset list, add lineage and quality views | Planned |
 | Week 5 | **Incidents & backfills** — Open incidents from failed runs, add incident view with acknowledgment, add backfill preview, run idempotent backfills with tests | Planned |
 | Week 6 | **AI summaries & release** — Add run summary adapter with mock model and source citations, add scale, recovery and security tests, add lint, typecheck and test workflow, add setup guide, demo script and runbook | Planned |
@@ -112,7 +111,7 @@ dataharbor/
 
 - [Architecture decisions](docs/adr/)
 - [Week 1 acceptance cases](docs/acceptance/week-01-local-platform-and-fixtures.md)
-- [Progress notes](docs/progress/week-01.md)
+- [Progress notes](docs/progress/)
 - [Synthetic source data](packages/fixtures/README.md)
 
 ## Getting started

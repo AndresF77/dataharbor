@@ -10,6 +10,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     String,
@@ -224,5 +225,133 @@ class LandedFile(Base):
         Uuid, ForeignKey("users.id", ondelete="SET NULL")
     )
     landed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class PipelineKind(str, enum.Enum):
+    INGESTION = "ingestion"
+    TRANSFORMATION = "transformation"
+
+
+class RunTrigger(str, enum.Enum):
+    SCHEDULED = "scheduled"
+    MANUAL = "manual"
+    BACKFILL = "backfill"
+
+
+class RunStatus(str, enum.Enum):
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class TaskStatus(str, enum.Enum):
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+def _values(enum_type: type[enum.Enum]) -> str:
+    return ", ".join(f"'{member.value}'" for member in enum_type)
+
+
+class Pipeline(Base):
+    """An orchestrated job, e.g. the Airflow DAG that lands the raw sources."""
+
+    __tablename__ = "pipelines"
+    __table_args__ = (
+        CheckConstraint("length(name) BETWEEN 2 AND 63", name="name_length"),
+        CheckConstraint(f"kind IN ({_values(PipelineKind)})", name="kind_valid"),
+        CheckConstraint("length(dag_id) BETWEEN 1 AND 250", name="dag_id_length"),
+        CheckConstraint("length(description) <= 2000", name="description_length"),
+        UniqueConstraint("workspace_id", "name"),
+        UniqueConstraint("workspace_id", "dag_id", name="uq_pipelines_workspace_id_dag_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("workspaces.id", ondelete="CASCADE")
+    )
+    name: Mapped[str] = mapped_column(String(63))
+    kind: Mapped[str] = mapped_column(String(16))
+    dag_id: Mapped[str] = mapped_column(String(250))
+    schedule: Mapped[str | None] = mapped_column(String(64))
+    description: Mapped[str] = mapped_column(String(2000), default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class PipelineRun(Base):
+    """One execution of a pipeline for a business date.
+
+    `id` is DataHarbor's stable run ID; `external_run_id` is the orchestrator's
+    (Airflow `dag_run_id`) and is unique per pipeline, so a retried "start"
+    returns the same run. A run moves from `running` to `succeeded` or
+    `failed` exactly once and is never edited afterwards.
+    """
+
+    __tablename__ = "pipeline_runs"
+    __table_args__ = (
+        CheckConstraint("length(external_run_id) BETWEEN 1 AND 250", name="external_run_id_length"),
+        CheckConstraint(f"trigger IN ({_values(RunTrigger)})", name="trigger_valid"),
+        CheckConstraint(f"status IN ({_values(RunStatus)})", name="status_valid"),
+        CheckConstraint(
+            "(status = 'running') = (finished_at IS NULL)", name="finished_iff_terminal"
+        ),
+        CheckConstraint(
+            "error_summary IS NULL OR length(error_summary) <= 500", name="error_summary_length"
+        ),
+        UniqueConstraint("pipeline_id", "external_run_id"),
+        Index("ix_pipeline_runs_history", "pipeline_id", "business_date", "id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    pipeline_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("pipelines.id", ondelete="CASCADE")
+    )
+    external_run_id: Mapped[str] = mapped_column(String(250))
+    trigger: Mapped[str] = mapped_column(String(16))
+    business_date: Mapped[date] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(16), default=RunStatus.RUNNING.value)
+    started_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL")
+    )
+    error_summary: Mapped[str | None] = mapped_column(String(500))
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PipelineRunTask(Base):
+    """The recorded outcome of one task in a run. Written once, never edited."""
+
+    __tablename__ = "pipeline_run_tasks"
+    __table_args__ = (
+        CheckConstraint("length(task_id) BETWEEN 1 AND 250", name="task_id_length"),
+        CheckConstraint(f"status IN ({_values(TaskStatus)})", name="status_valid"),
+        CheckConstraint("length(message) <= 500", name="message_length"),
+        UniqueConstraint("run_id", "task_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("pipeline_runs.id", ondelete="CASCADE")
+    )
+    task_id: Mapped[str] = mapped_column(String(250))
+    status: Mapped[str] = mapped_column(String(16))
+    dataset_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("datasets.id", ondelete="SET NULL")
+    )
+    landed_file_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("landed_files.id", ondelete="SET NULL")
+    )
+    message: Mapped[str] = mapped_column(String(500), default="")
+    recorded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

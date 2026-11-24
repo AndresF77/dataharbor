@@ -53,6 +53,11 @@ export DATAHARBOR_DATABASE_URL=postgresql+psycopg://dataharbor:<POSTGRES_PASSWOR
 | `POST /v1/workspaces/{id}/datasets/{dataset_id}/files` | Land a source file (raw request body, `business_date`, `filename`; engineer+) in MinIO after it passes the latest contract |
 | `GET …/files`, `GET …/files/{file_id}` | Landed files, newest business date first, or one file (viewer+) |
 | `POST …/files/{file_id}/verify` | Re-read the stored object and compare its SHA-256 (engineer+) |
+| `GET /v1/workspaces/{id}/pipelines`, `GET …/pipelines/{pipeline_id}` | Registered pipelines (viewer+) |
+| `POST …/pipelines/{pipeline_id}/runs` | Open a run for a business date (engineer+); same `external_run_id` again → `200` with the same run |
+| `GET …/runs/{run_id}` | One run with its task outcomes (viewer+) |
+| `POST …/runs/{run_id}/tasks` | Record a task outcome once (engineer+) |
+| `POST …/runs/{run_id}/finish` | Close the run as `succeeded` or `failed` (engineer+) |
 
 ## Authentication and roles
 
@@ -185,13 +190,54 @@ rejects bytes that change in transit, and kept as object metadata.
 whether its SHA-256 still matches. Logs record ids, sizes and checksums,
 never file contents.
 
+## Pipeline runs
+
+A pipeline is an orchestrated job: the Airflow DAG id, its schedule and its
+kind (`ingestion` or `transformation`). The DAGs in
+[`services/worker`](../worker/README.md) report every run here, so each
+execution has a stable DataHarbor run ID and a history that does not change
+once the run is finished ([ADR 0002](../../docs/adr/0002-airflow-run-tracking.md)).
+
+| Step | Rule |
+|---|---|
+| Start (`external_run_id`, `business_date`, `trigger` = `scheduled` / `manual` / `backfill`) | `external_run_id` (Airflow `run_id`) is unique per pipeline: a retried start returns the same run (`200`); the same id with another date or trigger is `409` |
+| Task outcome (`task_id`, `status` = `succeeded` / `failed` / `skipped`, optional `dataset_id`, `landed_file_id`, `message` ≤ 500 chars) | Written once: the identical report again is `200`, a different one `409`. `dataset_id` must be in the workspace and `landed_file_id` a file of that dataset (`422`) |
+| Finish (`succeeded`, or `failed` with an optional `error_summary` ≤ 500 chars) | Only from `running`; a run with a failed task cannot succeed (`409`); repeating the same finish is `200`, anything else on a finished run `409` |
+
+The database enforces the same shape: `finished_at` is set exactly when the
+status is terminal, statuses and triggers are checked, and `(run, task_id)`
+is unique. Messages come from the orchestrator and are stored as plain
+text; logs record ids and statuses only.
+
+### Run history
+
+`GET /v1/workspaces/{id}/pipelines/{id}/runs` (any member) lists a
+pipeline's runs, newest business date first. Each item is a summary: status,
+trigger, business date, start/finish time, `duration_seconds` (null while
+running), `error_summary` and `task_counts` (`succeeded` / `failed` /
+`skipped`); `GET …/runs/{run_id}` returns the full run with every task.
+
+| Query parameter | Meaning |
+|---|---|
+| `status` | `running`, `succeeded` or `failed` |
+| `trigger` | `scheduled`, `manual` or `backfill` |
+| `business_date_from`, `business_date_to` | Inclusive window; `from` after `to` is `422` |
+| `limit` | 1–200, default 50 |
+| `cursor` | `next_cursor` from the previous page; filters must stay the same |
+
+Runs of the same business date (a retry, a manual re-run) come in a stable
+order, so paging never skips or repeats a run. The index
+`ix_pipeline_runs_history` (`pipeline_id, business_date, id`) backs this
+order.
+
 ## Demo data
 
 Seed a demo workspace (`acme-analytics`) with one synthetic user per role,
 six datasets that mirror the synthetic sources in
 [`packages/fixtures`](../../packages/fixtures) (`raw_*`, `stg_*`,
 `daily_revenue`, owned by the engineer), a first ingestion contract for
-each `raw_*` dataset that matches the fixture files, and print a fresh
+each `raw_*` dataset that matches the fixture files, the
+`ingest_raw_sources` pipeline (DAG `dataharbor_ingest_raw_sources`), and print a fresh
 token for each user:
 
 ```bash
@@ -224,7 +270,10 @@ three tables and keeps workspaces. `0003` adds `datasets`; rolling it back
 drops every registered dataset and keeps workspaces, users and members.
 `0004` adds `ingestion_contracts`; rolling it back drops every contract
 version and keeps datasets. `0005` adds `landed_files`; rolling it back
-drops the file records only — objects stay in MinIO.
+drops the file records only — objects stay in MinIO. `0006` adds
+`pipelines`, `pipeline_runs` and `pipeline_run_tasks`; rolling it back drops
+the run history. `0007` adds the run-history index; rolling it back drops
+the index only.
 
 ## Tests
 

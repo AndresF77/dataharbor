@@ -7,6 +7,7 @@ __pycache__/
 *.py[cod]
 .venv/
 .pytest_cache/
+*.egg-info/
 
 # Generated fixture output
 packages/fixtures/out/
@@ -18,3 +19,9 @@ services/worker/logs/
 .idea/
 .vscode/
 .DS_Store
+
+# dbt
+services/worker/dbt/target/
+services/worker/dbt/logs/
+services/worker/dbt/dbt_packages/
+services/worker/dbt/.user.yml

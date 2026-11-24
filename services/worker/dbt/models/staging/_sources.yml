@@ -1,0 +1,16 @@
+version: 2
+
+sources:
+  - name: raw
+    description: >
+      Landed source files copied as text, one partition per business date
+      (`python -m dataharbor_worker load-raw`). Only files that passed their
+      ingestion contract in the landing zone are loaded.
+    schema: raw
+    tables:
+      - name: customers
+        description: Customer snapshot CSV (raw_customers); delivered with the last business date.
+      - name: orders
+        description: Daily orders CSV (raw_orders).
+      - name: payments
+        description: Daily payments JSONL (raw_payments).
