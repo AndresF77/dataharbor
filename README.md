@@ -81,8 +81,7 @@ flowchart LR
 dataharbor/
 ├── apps/web/              # React frontend
 ├── services/api/          # FastAPI service
-├── services/worker/       # background jobs
-├── pipelines/             # Airflow DAGs and dbt project
+├── services/worker/       # Airflow DAGs, task logic and dbt project
 ├── packages/fixtures/     # synthetic source data
 ├── infra/compose/         # local services
 ├── tests/                 # integration and end-to-end tests

@@ -147,3 +147,12 @@ class ApiClient:
             headers={"X-Content-SHA256": sha256, "Content-Type": "application/octet-stream"},
         )
         return body
+
+    def landed_files(self, dataset_id: str, business_date: date) -> list[dict]:
+        """Files landed for a dataset and business date, newest landing first."""
+        _, body = self._call(
+            "GET",
+            f"/datasets/{dataset_id}/files",
+            params={"business_date": business_date.isoformat(), "limit": "200"},
+        )
+        return body["items"]

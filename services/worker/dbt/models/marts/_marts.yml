@@ -1,0 +1,26 @@
+version: 2
+
+models:
+  - name: daily_revenue
+    description: >
+      Paid revenue per day and currency (registry dataset `daily_revenue`).
+      One row per `revenue_date` and `currency`.
+    columns:
+      - name: revenue_date
+        description: Order date (UTC); for orphan payments, the payment date.
+      - name: currency
+        description: ISO 4217 code.
+      - name: completed_orders
+        description: Completed (not cancelled) orders that day.
+      - name: paid_orders
+        description: Completed orders with a captured payment.
+      - name: order_amount
+        description: Total of completed orders.
+      - name: paid_amount
+        description: Captured payments for those orders.
+      - name: outstanding_amount
+        description: "`order_amount - paid_amount`."
+      - name: orphan_payments
+        description: Payments that day whose order is unknown; not counted as revenue.
+      - name: orphan_amount
+        description: Total of those payments.

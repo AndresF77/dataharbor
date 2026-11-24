@@ -26,6 +26,42 @@ The source directory has the layout written by
 [`packages/fixtures`](../../packages/fixtures/README.md). Manifest paths that
 point outside it are refused.
 
+## dbt project
+
+`dbt/` builds the warehouse models from the `raw` schema (ADR 0001 layout):
+
+| Model | Schema | Materialized | Registry dataset | Contents |
+|---|---|---|---|---|
+| `stg_orders` | `staging` | view | `stg_orders` | Typed orders, one row per `order_id` (a re-delivered order keeps its latest business date); `order_date` in UTC |
+| `stg_payments` | `staging` | view | `stg_payments` | Typed payments, one row per `payment_id`; `has_known_order = false` flags payments for orders not in `stg_orders` |
+| `daily_revenue` | `mart` | table | `daily_revenue` | Per order date and currency: completed and paid orders, order / paid / outstanding amounts; orphan payments counted separately and never as revenue |
+
+The `raw` tables are filled by `load-raw`:
+
+```bash
+python3 -m dataharbor_worker load-raw --business-date 2026-02-23
+```
+
+For each raw dataset it asks the API which file landed for that date, reads
+the bytes from the source directory, and loads them only if their SHA-256
+matches the landed file — files refused by their contract never reach the
+warehouse. Columns are stored as `text`, as delivered, plus `_business_date`,
+`_file_sha256`, `_record_number` and `_loaded_at`. A load replaces that date's
+rows in one transaction, so reloading or backfilling a date is idempotent.
+Prints one line per dataset (`loaded`, `skipped` when nothing landed, or
+`failed`); exit code 1 if any failed.
+
+Then build the models:
+
+```bash
+cd dbt
+dbt build --profiles-dir .
+```
+
+`profiles.yml` reads the same `DATAHARBOR_WAREHOUSE_*` variables. Install the
+extras with `pip install -e '.[warehouse,dbt]'`. Running dbt from Airflow and
+reporting it as a `transformation` pipeline run comes next.
+
 ## Settings
 
 | Variable | Meaning |
@@ -35,6 +71,8 @@ point outside it are refused.
 | `DATAHARBOR_WORKSPACE_ID` | Workspace that owns the `ingest_raw_sources` pipeline |
 | `DATAHARBOR_SOURCE_DIR` | Directory with `manifest.json` and the source files |
 | `DATAHARBOR_API_TIMEOUT_SECONDS` | Per-request timeout (default 30) |
+| `DATAHARBOR_WAREHOUSE_HOST`, `_PORT`, `_DB` | Warehouse PostgreSQL for `load-raw` and dbt (default `127.0.0.1`, `5432`, `warehouse`) |
+| `DATAHARBOR_WAREHOUSE_USER`, `_PASSWORD` | Its credentials (password never logged) |
 
 In Compose these come from `.env` (`DATAHARBOR_WORKER_*`,
 `DATAHARBOR_SOURCE_DIR_HOST`); see [`infra/compose`](../../infra/compose/README.md).
@@ -62,4 +100,7 @@ python3 -m venv .venv
 ```
 
 `tests/test_dag.py` also parses the DAG when Airflow is installed and is
-skipped otherwise.
+skipped otherwise. The warehouse loader tests use an in-memory stand-in; set
+`DATAHARBOR_TEST_WAREHOUSE_USER`, `_PASSWORD` (and `_HOST`, `_PORT`, `_DB` as
+needed) to also run them against a real PostgreSQL database — they drop and
+recreate its `raw` schema, so point them at a scratch database.

@@ -87,7 +87,7 @@ def entry_for(entries: Iterable[ManifestEntry], dataset_name: str,
     return matches[0] if matches else None
 
 
-def _read_source(source_dir: Path, relative: str) -> bytes | None:
+def read_source(source_dir: Path, relative: str) -> bytes | None:
     """Read a manifest path, refusing anything that would leave `source_dir`."""
     rel = PurePosixPath(relative)
     if rel.is_absolute() or ".." in rel.parts:
@@ -177,7 +177,7 @@ def _land(ctx: RunContext, source_dir: Path, task_id: str, dataset_name: str,
 
     filename = PurePosixPath(entry.path).name
     try:
-        data = _read_source(source_dir, entry.path)
+        data = read_source(source_dir, entry.path)
     except SourceError as exc:
         failed.message = str(exc)
         return failed

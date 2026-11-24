@@ -1,0 +1,14 @@
+# Connection from the same DATAHARBOR_WAREHOUSE_* variables the loader uses.
+# Run dbt with `--profiles-dir .` (or DBT_PROFILES_DIR) from this directory.
+dataharbor:
+  target: local
+  outputs:
+    local:
+      type: postgres
+      host: "{{ env_var('DATAHARBOR_WAREHOUSE_HOST', '127.0.0.1') }}"
+      port: "{{ env_var('DATAHARBOR_WAREHOUSE_PORT', '5432') | as_number }}"
+      dbname: "{{ env_var('DATAHARBOR_WAREHOUSE_DB', 'warehouse') }}"
+      user: "{{ env_var('DATAHARBOR_WAREHOUSE_USER') }}"
+      password: "{{ env_var('DATAHARBOR_WAREHOUSE_PASSWORD') }}"
+      schema: staging
+      threads: 4

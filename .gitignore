@@ -19,3 +19,9 @@ services/worker/logs/
 .idea/
 .vscode/
 .DS_Store
+
+# dbt
+services/worker/dbt/target/
+services/worker/dbt/logs/
+services/worker/dbt/dbt_packages/
+services/worker/dbt/.user.yml
