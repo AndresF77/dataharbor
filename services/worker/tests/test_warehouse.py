@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 import re
 
 import pytest
@@ -210,24 +209,6 @@ def test_connection_settings_need_credentials():
                                     "DATAHARBOR_WAREHOUSE_PASSWORD": "p"})
     assert settings == {"host": "127.0.0.1", "port": "5432", "dbname": "warehouse",
                         "user": "u", "password": "p"}
-
-
-@pytest.fixture
-def warehouse():
-    """A real PostgreSQL warehouse when DATAHARBOR_TEST_WAREHOUSE_* is set (scratch schema)."""
-    env = {k.replace("_TEST_", "_"): v for k, v in os.environ.items()
-           if k.startswith("DATAHARBOR_TEST_WAREHOUSE_")}
-    if not env:
-        pytest.skip("set DATAHARBOR_TEST_WAREHOUSE_* to run against PostgreSQL")
-    psycopg = pytest.importorskip("psycopg")
-    conn = psycopg.connect(**connection_settings(env))
-    conn.execute("DROP SCHEMA IF EXISTS raw CASCADE")
-    conn.commit()
-    yield conn
-    conn.rollback()
-    conn.execute("DROP SCHEMA IF EXISTS raw CASCADE")
-    conn.commit()
-    conn.close()
 
 
 def test_postgres_load_is_idempotent_per_date(worker_client, make_sources, warehouse):

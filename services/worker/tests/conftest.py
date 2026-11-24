@@ -1,3 +1,4 @@
+import os
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -10,8 +11,12 @@ from dataharbor_api.main import create_app
 from dataharbor_api.migrations import upgrade
 from dataharbor_api.seed import seed_demo
 from dataharbor_worker.api_client import ApiClient
+from dataharbor_worker.warehouse import connection_settings
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+
+# Schemas the loader and dbt write; dropped before and after each warehouse test.
+WAREHOUSE_SCHEMAS = ("raw", "staging", "mart")
 
 
 class TestClientTransport:
@@ -68,3 +73,31 @@ def make_sources(tmp_path, fixtures_module):
         return out, options
 
     return make
+
+
+@pytest.fixture
+def warehouse_env() -> dict[str, str]:
+    """DATAHARBOR_WAREHOUSE_* settings taken from DATAHARBOR_TEST_WAREHOUSE_*."""
+    env = {k.replace("_TEST_", "_"): v for k, v in os.environ.items()
+           if k.startswith("DATAHARBOR_TEST_WAREHOUSE_")}
+    if not env:
+        pytest.skip("set DATAHARBOR_TEST_WAREHOUSE_* to run against PostgreSQL")
+    return env
+
+
+def _drop_schemas(conn) -> None:
+    for schema in WAREHOUSE_SCHEMAS:
+        conn.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+    conn.commit()
+
+
+@pytest.fixture
+def warehouse(warehouse_env):
+    """A real PostgreSQL warehouse (scratch database: raw/staging/mart are dropped)."""
+    psycopg = pytest.importorskip("psycopg")
+    conn = psycopg.connect(**connection_settings(warehouse_env))
+    _drop_schemas(conn)
+    yield conn
+    conn.rollback()
+    _drop_schemas(conn)
+    conn.close()

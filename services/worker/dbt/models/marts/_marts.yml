@@ -5,22 +5,53 @@ models:
     description: >
       Paid revenue per day and currency (registry dataset `daily_revenue`).
       One row per `revenue_date` and `currency`.
+    data_tests:
+      - unique_combination:
+          columns: ['revenue_date', 'currency']
     columns:
       - name: revenue_date
         description: Order date (UTC); for orphan payments, the payment date.
+        data_tests:
+          - not_null
       - name: currency
         description: ISO 4217 code.
+        data_tests:
+          - not_null
+          - currency_code
       - name: completed_orders
         description: Completed (not cancelled) orders that day.
+        data_tests:
+          - not_null
+          - non_negative
       - name: paid_orders
         description: Completed orders with a captured payment.
+        data_tests:
+          - not_null
+          - non_negative
       - name: order_amount
         description: Total of completed orders.
+        data_tests:
+          - not_null
+          - non_negative
       - name: paid_amount
         description: Captured payments for those orders.
+        data_tests:
+          - not_null
+          - non_negative
       - name: outstanding_amount
         description: "`order_amount - paid_amount`."
+        data_tests:
+          - not_null
+          - non_negative:
+              config:
+                severity: warn
       - name: orphan_payments
         description: Payments that day whose order is unknown; not counted as revenue.
+        data_tests:
+          - not_null
+          - non_negative
       - name: orphan_amount
         description: Total of those payments.
+        data_tests:
+          - not_null
+          - non_negative

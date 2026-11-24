@@ -6,49 +6,108 @@ models:
     columns:
       - name: order_id
         description: Source order id; one row each.
+        data_tests:
+          - unique
+          - not_null
       - name: customer_id
         description: Customer the order belongs to.
+        data_tests:
+          - not_null
       - name: quantity
         description: Units ordered.
+        data_tests:
+          - not_null
+          - non_negative
       - name: unit_price
         description: Price per unit in `currency`.
+        data_tests:
+          - not_null
+          - non_negative
       - name: amount
         description: Order total in `currency` (quantity × unit price).
+        data_tests:
+          - not_null
+          - non_negative
       - name: currency
         description: ISO 4217 code, upper case.
+        data_tests:
+          - not_null
+          - currency_code
       - name: status
         description: "`completed` or `cancelled`."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['completed', 'cancelled']
       - name: ordered_at
         description: When the order was placed.
+        data_tests:
+          - not_null
       - name: order_date
         description: UTC calendar date of `ordered_at`.
+        data_tests:
+          - not_null
       - name: business_date
         description: Business date of the landed file the row came from.
+        data_tests:
+          - not_null
       - name: source_file_sha256
         description: SHA-256 of that landed file.
+        data_tests:
+          - not_null
 
   - name: stg_payments
     description: Typed payments with orphan rows flagged (registry dataset `stg_payments`).
     columns:
       - name: payment_id
         description: Source payment id; one row each.
+        data_tests:
+          - unique
+          - not_null
       - name: order_id
         description: Order the payment is for.
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('stg_orders')
+              field: order_id
+              config:
+                where: has_known_order
       - name: method
         description: Payment method, lower case.
+        data_tests:
+          - not_null
       - name: amount
         description: Amount paid in `currency`.
+        data_tests:
+          - not_null
+          - non_negative
       - name: currency
         description: ISO 4217 code, upper case.
+        data_tests:
+          - not_null
+          - currency_code
       - name: status
         description: Provider status, lower case (`captured` in the fixtures).
+        data_tests:
+          - not_null
       - name: paid_at
         description: When the payment was made.
+        data_tests:
+          - not_null
       - name: paid_date
         description: UTC calendar date of `paid_at`.
+        data_tests:
+          - not_null
       - name: business_date
         description: Business date of the landed file the row came from.
+        data_tests:
+          - not_null
       - name: source_file_sha256
         description: SHA-256 of that landed file.
+        data_tests:
+          - not_null
       - name: has_known_order
         description: False when no order in `stg_orders` has this `order_id` (orphan payment).
+        data_tests:
+          - not_null
