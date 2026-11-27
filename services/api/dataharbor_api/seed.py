@@ -8,9 +8,10 @@ synthetic sources in `packages/fixtures` and are only added if missing;
 the three raw datasets get a first ingestion contract describing the
 fixture files, unless they already have one, and the raw-source ingestion
 pipeline (`services/worker/dags/ingest_raw_sources.py`) is registered.
-Each raw dataset gets a freshness rule on its landed files unless it has one. Tokens are printed once and only
-their hashes are stored. All identities use the reserved `example.test`
-domain; no real people or data.
+Each raw dataset gets a freshness rule on its landed files unless it has one,
+and the data quality rules in `DEMO_QUALITY_RULES` that it lacks (by name).
+Tokens are printed once and only their hashes are stored. All identities
+use the reserved `example.test` domain; no real people or data.
 """
 
 import argparse
@@ -31,6 +32,7 @@ from dataharbor_api.models import (
     Layer,
     Pipeline,
     PipelineKind,
+    QualityRule,
     Role,
     User,
     Workspace,
@@ -108,6 +110,29 @@ DEMO_PIPELINES = [
 # Raw files are due daily at 03:00 UTC: warn after 25 h, stale after 26 h without one.
 DEMO_RAW_FRESHNESS = {"warn_after_minutes": 1500, "error_after_minutes": 1560}
 
+# Value checks the contracts cannot express, matching packages/fixtures output:
+# (dataset, name, check, columns, params, severity, description).
+DEMO_QUALITY_RULES = [
+    ("raw_customers", "has_customers", "row_count", [], {"min": "1"}, "error",
+     "The daily snapshot is never empty"),
+    ("raw_customers", "email_unique", "unique", ["email"], {}, "warn",
+     "One customer per email address"),
+    ("raw_customers", "segment_known", "accepted_values", ["segment"],
+     {"values": ["consumer", "small_business"]}, "error", "Known customer segments"),
+    ("raw_orders", "amount_non_negative", "value_range", ["amount"], {"min": "0"}, "error",
+     "Order amounts are never negative"),
+    ("raw_orders", "quantity_plausible", "value_range", ["quantity"], {"min": "1", "max": "100"},
+     "warn", "Between 1 and 100 items per order line"),
+    ("raw_orders", "status_known", "accepted_values", ["status"],
+     {"values": ["completed", "cancelled"]}, "error", "Known order statuses"),
+    ("raw_payments", "amount_positive", "value_range", ["amount"], {"min": "0.01"}, "error",
+     "Captured payments have a positive amount"),
+    ("raw_payments", "method_known", "accepted_values", ["method"],
+     {"values": ["card", "bank_transfer", "wallet"]}, "error", "Known payment methods"),
+    ("raw_payments", "currency_usd", "accepted_values", ["currency"], {"values": ["USD"]}, "warn",
+     "The synthetic provider settles in USD only"),
+]
+
 
 def seed_demo(session: Session) -> dict[str, str]:
     """Create the demo workspace and users; return {email: new bearer token}."""
@@ -179,6 +204,32 @@ def seed_demo(session: Session) -> dict[str, str]:
                     version=1,
                     updated_by_user_id=owner.id,
                     **DEMO_RAW_FRESHNESS,
+                )
+            )
+
+    raw_by_name = {d.name: d for d in raw_datasets}
+    for dataset_name, name, check, columns, params, severity, description in DEMO_QUALITY_RULES:
+        dataset = raw_by_name.get(dataset_name)
+        if dataset is None:
+            continue
+        exists = session.scalar(
+            select(QualityRule.id).where(
+                QualityRule.dataset_id == dataset.id, QualityRule.name == name
+            )
+        )
+        if exists is None:
+            session.add(
+                QualityRule(
+                    dataset_id=dataset.id,
+                    name=name,
+                    check_kind=check,
+                    columns=columns,
+                    params=params,
+                    severity=severity,
+                    description=description,
+                    enabled=True,
+                    version=1,
+                    updated_by_user_id=owner.id,
                 )
             )
 

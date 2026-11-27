@@ -6,6 +6,7 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -407,4 +408,117 @@ class FreshnessRule(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class QualityCheck(str, enum.Enum):
+    NOT_NULL = "not_null"
+    UNIQUE = "unique"
+    ACCEPTED_VALUES = "accepted_values"
+    VALUE_RANGE = "value_range"
+    ROW_COUNT = "row_count"
+
+
+class Severity(str, enum.Enum):
+    """`error` failures fail the file's quality status; `warn` failures only warn."""
+
+    WARN = "warn"
+    ERROR = "error"
+
+
+class ResultStatus(str, enum.Enum):
+    PASS = "pass"
+    FAIL = "fail"
+    ERROR = "error"  # the check could not run, e.g. its column is not in the file's contract
+
+
+class QualityRule(Base):
+    """A named data quality check on a raw dataset's landed files.
+
+    `params` holds the check's `values`, `min` and `max`. `version` goes up on
+    every change, and results record the version they were evaluated with.
+    """
+
+    __tablename__ = "quality_rules"
+    __table_args__ = (
+        CheckConstraint("length(name) BETWEEN 2 AND 63", name="name_length"),
+        CheckConstraint(f"check_kind IN ({_values(QualityCheck)})", name="check_kind_valid"),
+        CheckConstraint(f"severity IN ({_values(Severity)})", name="severity_valid"),
+        CheckConstraint("length(description) <= 500", name="description_length"),
+        CheckConstraint("version >= 1", name="version_positive"),
+        UniqueConstraint("dataset_id", "name"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    dataset_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("datasets.id", ondelete="CASCADE")
+    )
+    name: Mapped[str] = mapped_column(String(63))
+    check_kind: Mapped[str] = mapped_column(String(16))
+    columns: Mapped[list] = mapped_column(JSON)
+    params: Mapped[dict] = mapped_column(JSON)
+    severity: Mapped[str] = mapped_column(String(8))
+    description: Mapped[str] = mapped_column(String(500), default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class QualityResult(Base):
+    """One rule version evaluated on one landed file. Written once, never edited.
+
+    The rule's name, check and severity are copied so the history survives a
+    deleted rule (`rule_id` then becomes null). Only counts and record numbers
+    are stored, never values.
+    """
+
+    __tablename__ = "quality_results"
+    __table_args__ = (
+        CheckConstraint(f"status IN ({_values(ResultStatus)})", name="status_valid"),
+        CheckConstraint(f"check_kind IN ({_values(QualityCheck)})", name="check_kind_valid"),
+        CheckConstraint(f"severity IN ({_values(Severity)})", name="severity_valid"),
+        CheckConstraint("rule_version >= 1", name="rule_version_positive"),
+        CheckConstraint(
+            "checked_records >= 0 AND failing_records >= 0 "
+            "AND failing_records <= checked_records",
+            name="record_counts_valid",
+        ),
+        CheckConstraint("status <> 'pass' OR failing_records = 0", name="pass_has_no_failures"),
+        CheckConstraint("length(message) <= 500", name="message_length"),
+        UniqueConstraint("landed_file_id", "rule_id", "rule_version"),
+        Index("ix_quality_results_dataset_history", "dataset_id", "evaluated_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    dataset_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("datasets.id", ondelete="CASCADE")
+    )
+    landed_file_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("landed_files.id", ondelete="CASCADE")
+    )
+    rule_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("quality_rules.id", ondelete="SET NULL"), index=True
+    )
+    rule_name: Mapped[str] = mapped_column(String(63))
+    rule_version: Mapped[int] = mapped_column(Integer)
+    check_kind: Mapped[str] = mapped_column(String(16))
+    severity: Mapped[str] = mapped_column(String(8))
+    status: Mapped[str] = mapped_column(String(8))
+    checked_records: Mapped[int] = mapped_column(Integer)
+    failing_records: Mapped[int] = mapped_column(Integer)
+    sample_records: Mapped[list] = mapped_column(JSON)
+    message: Mapped[str] = mapped_column(String(500), default="")
+    evaluated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL")
+    )
+    evaluated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
     )

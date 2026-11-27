@@ -3,11 +3,11 @@
 | Day | Task | Status | Evidence |
 |---|---|---|---|
 | D36 | Acceptance cases and ADR | In progress | Acceptance cases below; freshness reuses the update signals the platform already records (landed files, pipeline runs), so no new ADR yet |
-| D37 | Core data schema and migration | In progress | Alembic `0008` `freshness_rules` (one per dataset, signal CHECK, pipeline required exactly for `pipeline_run`, `warn < error`, pipeline delete restricted); rollback drops the rules only |
-| D38 | API endpoint and validation | In progress | `GET/PUT/DELETE …/datasets/{id}/freshness-rule`, `GET …/datasets/{id}/freshness`, `GET /v1/workspaces/{id}/freshness` ([API README](../../services/api/README.md#freshness-rules)) |
+| D37 | Core data schema and migration | In progress | Alembic `0008` `freshness_rules` (one per dataset, signal CHECK, pipeline required exactly for `pipeline_run`, `warn < error`, pipeline delete restricted); `0009` `quality_rules` (unique name per dataset, check/severity CHECKs, `version`) and `quality_results` (one per file + rule version, pass ⇒ no failures, failures ≤ checked, kept when a rule is deleted); rollbacks drop only their tables |
+| D38 | API endpoint and validation | In progress | `GET/PUT/DELETE …/datasets/{id}/freshness-rule`, `GET …/datasets/{id}/freshness`, `GET /v1/workspaces/{id}/freshness` ([API README](../../services/api/README.md#freshness-rules)); quality rules CRUD, `POST …/files/{id}/quality-checks`, result history ([API README](../../services/api/README.md#data-quality-rules)) |
 | D39 | UI workflow with error states | Not started | |
-| D40 | Unit and integration tests | In progress | `tests/test_freshness.py`: threshold boundaries, signals, version conflicts, roles, workspace scoping; migration CHECK tests |
-| D41 | Observability and security checks | In progress | Rule changes log dataset id, version and signal only; non-members get `404`, viewers cannot change rules |
+| D40 | Unit and integration tests | In progress | `tests/test_freshness.py`: threshold boundaries, signals, version conflicts, roles, workspace scoping; `tests/test_quality.py`: malformed definitions, contract fit, each check incl. inclusive bounds and nulls, file status, re-runs, rule versions, tampered file, outage, history filters; migration CHECK tests |
+| D41 | Observability and security checks | In progress | Rule changes log dataset id, version and signal only; quality results and logs hold counts and record numbers, never values; non-members get `404`, viewers cannot change rules or run checks |
 | D42 | Demo, regressions and next risks | Not started | |
 
 ## Acceptance cases
@@ -23,6 +23,11 @@
 | AC-06.7 | An existing rule | `PUT` without `version`, or with an old one | `409`; with the current version the rule is replaced and its version goes up; eight concurrent first `PUT`s create exactly one rule |
 | AC-06.8 | Datasets with rules in two workspaces | the workspace overview is read | only the caller's workspace is listed, `stale` → `unknown` → `warning` → `fresh`, then by name; `counts` cover every rule even when `status` filters the items |
 | AC-06.9 | A viewer, a non-member, no token | they read or change a rule | viewer reads (`200`) but cannot change (`403`); non-member `404`; no token `401` |
+| AC-06.10 | A raw orders file with an unknown status (error rule) and a 150-item line (warn rule) | quality checks run | the file is `failed`; each failing result lists counts and record numbers but no values; with only the warn failure it is `warning` |
+| AC-06.11 | A file already checked | checks run again | the same results come back (`200`); after a rule changes, only its new version is evaluated (`201`) and both versions stay in the history; eight concurrent runs record each result once |
+| AC-06.12 | A rule added for a column of contract v2 | it runs on a file landed under v1 | the result is `error` with the reason; an erroring `error` rule fails the file |
+| AC-06.13 | A stored object that no longer matches its checksum, or storage down | checks run | `409` / `503`, nothing recorded |
+| AC-06.14 | A rule with results | it is deleted | its results stay in the history with `rule_id` null |
 
 ## Notes
 
@@ -32,6 +37,12 @@
   `409`, a pipeline a rule watches cannot be deleted, evaluation and the
   overview with a pinned clock. Not run in the Compose stack (no Docker on
   the build machine).
+- Quality rules verified on PostgreSQL 17 too: `0009` down/up, models match
+  the migrations, seed twice (nine rules), eight concurrent check runs on one
+  file record three results, deleting a rule keeps its results (FK
+  `SET NULL`), deleting a landed file removes its results.
+- Quality checks run on request only; scheduling them after each landing in
+  the ingestion DAG is still open.
 - The transformation (dbt) pipeline is not registered yet, so the seed only
   adds rules for the raw datasets; staging and mart rules come once dbt
   runs are reported.

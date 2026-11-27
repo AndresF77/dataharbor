@@ -63,6 +63,11 @@ export DATAHARBOR_DATABASE_URL=postgresql+psycopg://dataharbor:<POSTGRES_PASSWOR
 | `DELETE …/freshness-rule` | Remove the rule (engineer+) |
 | `GET /v1/workspaces/{id}/datasets/{dataset_id}/freshness` | Evaluate the rule now: `fresh`, `warning`, `stale` or `unknown` (viewer+) |
 | `GET /v1/workspaces/{id}/freshness` | Every dataset with a rule, worst status first, with counts; repeatable `status` filter (viewer+) |
+| `GET /v1/workspaces/{id}/datasets/{dataset_id}/quality-rules`, `GET …/quality-rules/{rule_id}` | Data quality rules of a dataset, by name (viewer+) |
+| `POST …/quality-rules` | Add a rule (engineer+, raw datasets with a contract); checked against the latest contract |
+| `PUT …/quality-rules/{rule_id}`, `DELETE …/quality-rules/{rule_id}` | Replace (current `version`) or remove a rule (engineer+); past results stay |
+| `POST …/files/{file_id}/quality-checks` | Run the enabled rules on a landed file and record the results (engineer+) |
+| `GET …/datasets/{dataset_id}/quality-results`, `GET /v1/workspaces/{id}/quality-results` | Result history, newest first, with filters (viewer+) |
 
 ## Authentication and roles
 
@@ -275,6 +280,55 @@ then by name, and reports `counts` for all rules even when `status`
 filters the items. Rule changes are logged with dataset ids and versions
 only.
 
+## Data quality rules
+
+Ingestion contracts decide whether a file may land (columns, types,
+nullability, primary key). Quality rules test the values of landed files
+and record the outcome; they never block landing. Each rule belongs to a
+raw dataset, has a unique `name` (`^[a-z][a-z0-9_]{1,62}$`), a `severity`
+(`warn` or `error`), a `description`, `enabled` and a `version`.
+
+| `check` | Fields | A record fails when |
+|---|---|---|
+| `not_null` | one column | the value is null or empty |
+| `unique` | 1–8 `columns` | its values repeat an earlier record's (records with a null key column are skipped) |
+| `accepted_values` | one column, `values` (1–100) | the value is not listed (exact, case-sensitive) |
+| `value_range` | one integer, decimal, date or timestamp column; `min` and/or `max` | the value is outside the inclusive range |
+| `row_count` | `min` and/or `max` (whole numbers) | — the whole file fails when its record count is outside the range |
+
+```http
+POST /v1/workspaces/{id}/datasets/{raw_orders}/quality-rules
+{"name": "quantity_plausible", "check": "value_range", "columns": ["quantity"],
+ "min": "1", "max": "100", "severity": "warn"}
+```
+
+Bounds are strings, so decimals and dates compare exactly; timestamps need
+an offset. A rule must fit the latest contract (`422` naming the unknown
+column or wrong type). `PUT` replaces the rule and needs the `version` you
+read (`409` otherwise); `DELETE` keeps past results, whose `rule_id`
+becomes `null`.
+
+`POST …/files/{file_id}/quality-checks` re-hashes the stored object (`409`
+if it no longer matches its SHA-256, `503` if storage is down), reads it
+once for all enabled rules and records one result per rule version:
+
+| Result `status` | Meaning |
+|---|---|
+| `pass` | no failing records |
+| `fail` | `failing_records` of `checked_records` failed; `sample_records` lists up to 20 record numbers (1-based) |
+| `error` | the rule cannot run on this file, e.g. its column is not in the contract version the file landed under |
+
+The file's `status` is `failed` when an `error` rule fails or errors,
+`warning` when only `warn` rules do, `passed` otherwise and `no_rules`
+without enabled rules. Results are written once: running again returns the
+recorded results (`200`); a changed rule (new version) is evaluated again
+(`201`). Concurrent runs record each result once. Results and logs carry
+counts and record numbers only, never values.
+
+History endpoints return the newest results first and filter by `status`
+(repeatable), `severity`, `business_date`, `limit` (1–200), and on the
+dataset route also `rule_id` and `landed_file_id`.
+
 ## Demo data
 
 Seed a demo workspace (`acme-analytics`) with one synthetic user per role,
@@ -284,7 +338,10 @@ six datasets that mirror the synthetic sources in
 each `raw_*` dataset that matches the fixture files, the
 `ingest_raw_sources` pipeline (DAG `dataharbor_ingest_raw_sources`), a
 `landed_file` freshness rule for each `raw_*` dataset (warning after 25 h,
-stale after 26 h, since files are due daily at 03:00 UTC), and print a fresh
+stale after 26 h, since files are due daily at 03:00 UTC), nine data
+quality rules on the `raw_*` datasets that the fixture files pass (known
+segments, statuses and payment methods, non-negative amounts, plausible
+quantities, unique emails, non-empty customer snapshot), and print a fresh
 token for each user:
 
 ```bash
@@ -321,7 +378,9 @@ drops the file records only — objects stay in MinIO. `0006` adds
 `pipelines`, `pipeline_runs` and `pipeline_run_tasks`; rolling it back drops
 the run history. `0007` adds the run-history index; rolling it back drops
 the index only. `0008` adds `freshness_rules`; rolling it back drops the
-rules only (datasets keep their SLA).
+rules only (datasets keep their SLA). `0009` adds `quality_rules` and
+`quality_results`; rolling it back drops the rules and their result
+history only.
 
 ## Tests
 

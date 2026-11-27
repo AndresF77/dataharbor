@@ -17,6 +17,7 @@ from dataharbor_api import (
     health,
     landing,
     pipelines,
+    quality,
     workspaces,
 )
 from dataharbor_api.config import Settings, get_settings
@@ -70,4 +71,6 @@ def create_app(
     app.include_router(pipelines.router)
     app.include_router(freshness.dataset_router)
     app.include_router(freshness.workspace_router)
+    app.include_router(quality.dataset_router)
+    app.include_router(quality.workspace_router)
     return app

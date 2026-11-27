@@ -31,7 +31,18 @@ def test_upgrade_creates_workspaces(database_url):
         "pipeline_runs",
         "pipeline_run_tasks",
         "freshness_rules",
+        "quality_rules",
+        "quality_results",
     } <= tables(database_url)
+
+
+def test_downgrade_0009_drops_quality_tables_only(database_url):
+    upgrade(database_url)
+    downgrade(database_url, "0008")
+
+    remaining = tables(database_url)
+    assert not {"quality_rules", "quality_results"} & remaining
+    assert {"freshness_rules", "landed_files", "datasets"} <= remaining
 
 
 def test_downgrade_0008_drops_freshness_rules_only(database_url):
@@ -274,5 +285,82 @@ def test_one_freshness_rule_per_dataset(database_url):
                 {"id": uuid.uuid4().hex, "d": dataset_id, "signal": "landed_file",
                  "p": None, "warn": None, "error": 60},
             )
+    finally:
+        engine.dispose()
+
+
+def _landed_file_and_rule(connection) -> tuple[str, str, str]:
+    dataset_id, _ = _dataset_and_pipeline(connection)
+    file_id, rule_id = uuid.uuid4().hex, uuid.uuid4().hex
+    connection.execute(
+        text(
+            "INSERT INTO landed_files (id, dataset_id, contract_version, business_date, "
+            "original_filename, object_key, sha256, size_bytes, record_count) "
+            "VALUES (:id, :d, 1, '2026-03-01', 'o.csv', 'k', :sha, 10, 2)"
+        ),
+        {"id": file_id, "d": dataset_id, "sha": "0" * 64},
+    )
+    connection.execute(
+        text(
+            "INSERT INTO quality_rules (id, dataset_id, name, check_kind, columns, params, "
+            "severity, description, enabled, version) "
+            "VALUES (:id, :d, 'has_rows', 'row_count', '[]', '{\"min\": \"1\"}', 'error', '', "
+            ":enabled, 1)"
+        ),
+        {"id": rule_id, "d": dataset_id, "enabled": True},
+    )
+    return dataset_id, file_id, rule_id
+
+
+INSERT_RESULT = text(
+    "INSERT INTO quality_results (id, dataset_id, landed_file_id, rule_id, rule_name, "
+    "rule_version, check_kind, severity, status, checked_records, failing_records, "
+    "sample_records, message) "
+    "VALUES (:id, :d, :f, :r, 'has_rows', :version, :check, 'error', :status, :checked, "
+    ":failing, '[]', '')"
+)
+
+
+@pytest.mark.parametrize(
+    ("status", "check", "version", "checked", "failing"),
+    [
+        ("pass", "row_count", 1, 3, 1),  # a pass with failures
+        ("fail", "row_count", 1, 1, 2),  # more failures than checked records
+        ("fail", "row_count", 1, 0, -1),
+        ("skipped", "row_count", 1, 0, 0),
+        ("fail", "regex", 1, 0, 0),
+        ("fail", "row_count", 0, 0, 0),
+    ],
+)
+def test_quality_result_check_constraints(database_url, status, check, version, checked,
+                                          failing):
+    upgrade(database_url)
+    engine = create_engine(database_url)
+    try:
+        with engine.begin() as connection:
+            dataset_id, file_id, rule_id = _landed_file_and_rule(connection)
+        with pytest.raises(IntegrityError), engine.begin() as connection:
+            connection.execute(INSERT_RESULT, {
+                "id": uuid.uuid4().hex, "d": dataset_id, "f": file_id, "r": rule_id,
+                "version": version, "check": check, "status": status,
+                "checked": checked, "failing": failing,
+            })
+    finally:
+        engine.dispose()
+
+
+def test_one_result_per_file_and_rule_version(database_url):
+    upgrade(database_url)
+    engine = create_engine(database_url)
+    try:
+        with engine.begin() as connection:
+            dataset_id, file_id, rule_id = _landed_file_and_rule(connection)
+        values = {"d": dataset_id, "f": file_id, "r": rule_id, "version": 1,
+                  "check": "row_count", "status": "pass", "checked": 2, "failing": 0}
+        with engine.begin() as connection:
+            connection.execute(INSERT_RESULT, {**values, "id": uuid.uuid4().hex})
+            connection.execute(INSERT_RESULT, {**values, "id": uuid.uuid4().hex, "version": 2})
+        with pytest.raises(IntegrityError), engine.begin() as connection:
+            connection.execute(INSERT_RESULT, {**values, "id": uuid.uuid4().hex})
     finally:
         engine.dispose()
