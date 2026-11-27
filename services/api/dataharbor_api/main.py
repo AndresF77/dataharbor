@@ -13,6 +13,7 @@ from dataharbor_api import (
     __version__,
     contracts,
     datasets,
+    freshness,
     health,
     landing,
     pipelines,
@@ -67,4 +68,6 @@ def create_app(
     app.include_router(contracts.router)
     app.include_router(landing.router)
     app.include_router(pipelines.router)
+    app.include_router(freshness.dataset_router)
+    app.include_router(freshness.workspace_router)
     return app

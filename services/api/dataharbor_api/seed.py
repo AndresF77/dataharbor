@@ -7,7 +7,8 @@ issues a new token for each demo user. Demo datasets mirror the
 synthetic sources in `packages/fixtures` and are only added if missing;
 the three raw datasets get a first ingestion contract describing the
 fixture files, unless they already have one, and the raw-source ingestion
-pipeline (`services/worker/dags/ingest_raw_sources.py`) is registered. Tokens are printed once and only
+pipeline (`services/worker/dags/ingest_raw_sources.py`) is registered.
+Each raw dataset gets a freshness rule on its landed files unless it has one. Tokens are printed once and only
 their hashes are stored. All identities use the reserved `example.test`
 domain; no real people or data.
 """
@@ -24,6 +25,8 @@ from dataharbor_api.db import Database
 from dataharbor_api.models import (
     ApiToken,
     Dataset,
+    FreshnessRule,
+    FreshnessSignal,
     IngestionContract,
     Layer,
     Pipeline,
@@ -102,6 +105,10 @@ DEMO_PIPELINES = [
 ]
 
 
+# Raw files are due daily at 03:00 UTC: warn after 25 h, stale after 26 h without one.
+DEMO_RAW_FRESHNESS = {"warn_after_minutes": 1500, "error_after_minutes": 1560}
+
+
 def seed_demo(session: Session) -> dict[str, str]:
     """Create the demo workspace and users; return {email: new bearer token}."""
     slug, name = DEMO_WORKSPACE
@@ -154,6 +161,24 @@ def seed_demo(session: Session) -> dict[str, str]:
             session.add(
                 IngestionContract(
                     dataset_id=dataset.id, version=1, created_by_user_id=owner.id, **contract
+                )
+            )
+
+    raw_datasets = session.scalars(
+        select(Dataset).where(Dataset.workspace_id == workspace.id, Dataset.layer == Layer.RAW.value)
+    ).all()
+    for dataset in raw_datasets:
+        has_rule = session.scalar(
+            select(FreshnessRule.id).where(FreshnessRule.dataset_id == dataset.id)
+        )
+        if has_rule is None:
+            session.add(
+                FreshnessRule(
+                    dataset_id=dataset.id,
+                    signal=FreshnessSignal.LANDED_FILE.value,
+                    version=1,
+                    updated_by_user_id=owner.id,
+                    **DEMO_RAW_FRESHNESS,
                 )
             )
 

@@ -355,3 +355,56 @@ class PipelineRunTask(Base):
     recorded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class FreshnessSignal(str, enum.Enum):
+    """What counts as "the dataset was updated"."""
+
+    LANDED_FILE = "landed_file"  # a file landed for the dataset (raw sources)
+    PIPELINE_RUN = "pipeline_run"  # a run of the given pipeline succeeded
+
+
+class FreshnessRule(Base):
+    """How old a dataset may get before it is flagged. One rule per dataset.
+
+    The dataset becomes `warning` once its last update is older than
+    `warn_after_minutes` (optional) and `stale` once it is older than
+    `error_after_minutes`. `version` guards concurrent edits.
+    """
+
+    __tablename__ = "freshness_rules"
+    __table_args__ = (
+        CheckConstraint(f"signal IN ({_values(FreshnessSignal)})", name="signal_valid"),
+        CheckConstraint(
+            "(signal = 'pipeline_run') = (pipeline_id IS NOT NULL)", name="pipeline_iff_run_signal"
+        ),
+        CheckConstraint("error_after_minutes BETWEEN 1 AND 525600", name="error_after_range"),
+        CheckConstraint(
+            "warn_after_minutes IS NULL OR "
+            "(warn_after_minutes >= 1 AND warn_after_minutes < error_after_minutes)",
+            name="warn_before_error",
+        ),
+        CheckConstraint("version >= 1", name="version_positive"),
+        UniqueConstraint("dataset_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    dataset_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("datasets.id", ondelete="CASCADE")
+    )
+    signal: Mapped[str] = mapped_column(String(16))
+    pipeline_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("pipelines.id", ondelete="RESTRICT"), index=True
+    )
+    warn_after_minutes: Mapped[int | None] = mapped_column(Integer)
+    error_after_minutes: Mapped[int] = mapped_column(Integer)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

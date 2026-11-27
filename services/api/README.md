@@ -58,6 +58,11 @@ export DATAHARBOR_DATABASE_URL=postgresql+psycopg://dataharbor:<POSTGRES_PASSWOR
 | `GET …/runs/{run_id}` | One run with its task outcomes (viewer+) |
 | `POST …/runs/{run_id}/tasks` | Record a task outcome once (engineer+) |
 | `POST …/runs/{run_id}/finish` | Close the run as `succeeded` or `failed` (engineer+) |
+| `GET /v1/workspaces/{id}/datasets/{dataset_id}/freshness-rule` | The dataset's freshness rule (viewer+) |
+| `PUT …/freshness-rule` | Create (no `version`) or replace (current `version`) the rule (engineer+) |
+| `DELETE …/freshness-rule` | Remove the rule (engineer+) |
+| `GET /v1/workspaces/{id}/datasets/{dataset_id}/freshness` | Evaluate the rule now: `fresh`, `warning`, `stale` or `unknown` (viewer+) |
+| `GET /v1/workspaces/{id}/freshness` | Every dataset with a rule, worst status first, with counts; repeatable `status` filter (viewer+) |
 
 ## Authentication and roles
 
@@ -230,6 +235,46 @@ order, so paging never skips or repeats a run. The index
 `ix_pipeline_runs_history` (`pipeline_id, business_date, id`) backs this
 order.
 
+## Freshness rules
+
+A dataset's `freshness_sla_minutes` is the promise shown in the registry; a
+freshness rule says how DataHarbor measures it. One rule per dataset:
+
+| Field | Meaning |
+|---|---|
+| `signal` | `landed_file` — the newest file landed for the dataset (raw datasets only); `pipeline_run` — the newest successful run of `pipeline_id` |
+| `pipeline_id` | Required with `pipeline_run`, rejected otherwise; must be a pipeline of the same workspace (`422`) |
+| `warn_after_minutes` | Optional; must be below `error_after_minutes` |
+| `error_after_minutes` | 1–525600; defaults to the dataset's `freshness_sla_minutes` (`422` if the dataset has none) |
+
+```http
+PUT /v1/workspaces/{id}/datasets/{stg_orders}/freshness-rule
+{"signal": "pipeline_run", "pipeline_id": "…", "warn_after_minutes": 1440}
+```
+
+`PUT` without `version` creates the rule (`201`; `409` if one exists); with
+the `version` you read it replaces the rule (`200`, version + 1; `409` if
+someone else changed it first).
+
+Evaluation takes the time of the newest update (`landed_at` of a landed
+file, `finished_at` of a succeeded run; failed and running runs do not
+count) and its age at request time:
+
+| Status | When |
+|---|---|
+| `fresh` | age ≤ `warn_after_minutes` (or ≤ `error_after_minutes` without a warn threshold) |
+| `warning` | older than `warn_after_minutes`, not older than `error_after_minutes` |
+| `stale` | older than `error_after_minutes` |
+| `unknown` | never updated |
+
+Thresholds are exclusive, so an update exactly `error_after_minutes` old is
+not yet stale. Responses include `last_updated_at`, `last_business_date`,
+`age_seconds` and `evaluated_at`. The workspace overview evaluates every
+rule with two grouped queries, sorts `stale`, `unknown`, `warning`, `fresh`,
+then by name, and reports `counts` for all rules even when `status`
+filters the items. Rule changes are logged with dataset ids and versions
+only.
+
 ## Demo data
 
 Seed a demo workspace (`acme-analytics`) with one synthetic user per role,
@@ -237,7 +282,9 @@ six datasets that mirror the synthetic sources in
 [`packages/fixtures`](../../packages/fixtures) (`raw_*`, `stg_*`,
 `daily_revenue`, owned by the engineer), a first ingestion contract for
 each `raw_*` dataset that matches the fixture files, the
-`ingest_raw_sources` pipeline (DAG `dataharbor_ingest_raw_sources`), and print a fresh
+`ingest_raw_sources` pipeline (DAG `dataharbor_ingest_raw_sources`), a
+`landed_file` freshness rule for each `raw_*` dataset (warning after 25 h,
+stale after 26 h, since files are due daily at 03:00 UTC), and print a fresh
 token for each user:
 
 ```bash
@@ -273,7 +320,8 @@ version and keeps datasets. `0005` adds `landed_files`; rolling it back
 drops the file records only — objects stay in MinIO. `0006` adds
 `pipelines`, `pipeline_runs` and `pipeline_run_tasks`; rolling it back drops
 the run history. `0007` adds the run-history index; rolling it back drops
-the index only.
+the index only. `0008` adds `freshness_rules`; rolling it back drops the
+rules only (datasets keep their SLA).
 
 ## Tests
 
@@ -291,7 +339,9 @@ optimistic-version conflicts, owner checks), ingestion contracts
 validation rule and type, the violation cap, sample size limits), the
 landing zone (stored bytes and keys, duplicate uploads, declared
 checksums, contract failures, roles, MinIO outages, verify, no file
-contents in logs; MinIO is replaced by an in-memory store), the
+contents in logs; MinIO is replaced by an in-memory store), freshness
+rules (threshold boundaries, signals, version conflicts, roles, workspace
+scoping; the clock is pinned by overriding the `utc_now` dependency), the
 seed command, and that the ORM models match the migrations. Two tests
 generate files with [`packages/fixtures`](../../packages/fixtures) and
 check that clean files pass the seeded contracts and that the duplicate
